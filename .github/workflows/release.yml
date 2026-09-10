@@ -32,8 +32,11 @@ jobs:
         shell: pwsh
         run: |
           pyinstaller empaquetar/CifrarPDF.spec --noconfirm
-          choco install innosetup --no-progress -y
-          & "$env:ProgramFiles(x86)\Inno Setup 6\ISCC.exe" empaquetar\CifrarPDF.iss
+          # Entre llaves: "$env:ProgramFiles(x86)" no se expande (ver ci.yml).
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup --no-progress -y }
+          if (-not (Test-Path $iscc)) { throw "No encuentro ISCC.exe en $iscc" }
+          & $iscc empaquetar\CifrarPDF.iss
 
       - name: Publicar la entrega
         uses: softprops/action-gh-release@v2

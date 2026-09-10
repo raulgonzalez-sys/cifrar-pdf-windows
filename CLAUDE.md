@@ -77,6 +77,14 @@ técnico. Los mensajes se escriben para ellas.
    entonces el `sha256` del fichero en disco no cuadra con el sello aunque nadie
    lo haya tocado. Lo arregla `.gitattributes` con `* -text`; **no se toca ese
    fichero** sin entender esto. Falló el primer CI de la repo por esto.
+10. **Parar el vigilante hay que pedirlo varias veces.** Uno recién lanzado tarda
+    un par de segundos en tomar el mútex, y en ese hueco `activo()` es False; si
+    se da por parado ahí, acaba de arrancar después y queda **huérfano**. Pasó en
+    el CI («Terminate orphan process: CifrarPDF»). `parar()` insiste cada 250 ms
+    y solo se rinde tras ver el mútex libre varias veces seguidas.
+11. **`"$env:ProgramFiles(x86)"` no se expande en PowerShell**: parsea
+    `$env:ProgramFiles` y deja `(x86)` como texto. Va con el nombre entre llaves,
+    `${env:ProgramFiles(x86)}`. Rompió el paso del instalador en el CI.
 
 ## Sincronía de `gui.py` con debian13-fisat
 

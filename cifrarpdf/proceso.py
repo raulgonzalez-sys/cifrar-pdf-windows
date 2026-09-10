@@ -162,24 +162,51 @@ def arrancar() -> bool:
     except OSError as error:
         rutas.log(f"ERROR al arrancar el vigilante: {error}")
         return False
-    # Darle un momento a que tome el mútex, para poder informar del estado real.
+    # Se le da un momento a que tome el mútex, para informar del estado real.
+    # Un False aquí NO significa que haya fallado: en un equipo lento el
+    # ejecutable puede tardar más en registrarse, y se registrará solo. Por eso
+    # quien llama no lo trata como error, y por eso parar() insiste (ver allí).
     for _ in range(20):
         if activo():
             return True
         time.sleep(0.25)
-    return activo()
+    rutas.log("El vigilante se lanzó pero aún no se había registrado; "
+              "seguirá arrancando por su cuenta.")
+    return False
+
+
+# Veces seguidas que hay que ver el mútex libre para dar por parado al
+# vigilante. Con una sola no basta (ver parar()).
+LIBRE_SEGUIDAS = 4
+INTERVALO_PARADA = 0.25
 
 
 def parar(espera: float = 10.0) -> bool:
-    """Pide la parada y espera a que suelte el mútex. True si ya no está."""
-    if not activo():
-        return True
-    pedir_parada()
+    """Pide la parada y espera a que el vigilante suelte el mútex.
+
+    La parada se pide REPETIDAMENTE, y no una sola vez, por una carrera real: un
+    vigilante recién lanzado tarda un par de segundos en registrarse (arrancar el
+    ejecutable, importar Qt, leer las credenciales), y en ese hueco «activo()»
+    devuelve False aunque el proceso exista ya. Si se diera por parado ahí, ese
+    proceso terminaría de arrancar DESPUÉS y se quedaría huérfano, vigilando
+    carpetas que puede que ya no existan.
+
+    No es hipotético: pasó en el primer CI de la repo, que acabó con un
+    «Terminate orphan process: CifrarPDF» tras dar de alta y quitar una carpeta
+    seguidas. Como el proceso, al arrancar, pone el evento a cero, la única forma
+    de ganarle la carrera es volver a pedirlo cada poco durante un rato.
+    """
     limite = time.monotonic() + espera
+    libres = 0
     while time.monotonic() < limite:
-        if not activo():
-            return True
-        time.sleep(0.25)
+        pedir_parada()
+        if activo():
+            libres = 0
+        else:
+            libres += 1
+            if libres >= LIBRE_SEGUIDAS:
+                return True
+        time.sleep(INTERVALO_PARADA)
     return not activo()
 
 
