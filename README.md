@@ -42,9 +42,12 @@ primero en el Escritorio.
 
 ## Para SAT: instalar
 
-Descarga `CifrarPDF-Setup-<versión>.exe` de la última entrega
-([Releases](../../releases)) y ejecútalo **como administrador**. Instala en
-`C:\Program Files\FISAT\CifrarPDF` y añade la entrada al menú Inicio.
+Descarga `CifrarPDF-Setup-<versión>.exe` de la **[última entrega](../../releases/latest)**
+y ejecútalo **como administrador**. Instala en `C:\Program Files\FISAT\CifrarPDF`
+y añade la entrada al menú Inicio.
+
+Ese enlace lleva siempre a la versión más reciente, así que no hay que tocar el
+README en cada entrega; el histórico está en [Releases](../../releases).
 
 **El ejecutable no está firmado**, así que Windows avisará. Es esperado:
 
