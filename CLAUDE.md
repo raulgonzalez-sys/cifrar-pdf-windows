@@ -72,6 +72,11 @@ técnico. Los mensajes se escriben para ellas.
    peor forma de fallar. El CI lo comprueba ejecutando el `.exe` construido.
 8. **Nada de UPX** en el empaquetado: dispara falsos positivos de antivirus y no
    compensa.
+9. **`core.autocrlf` rompe el sello de la GUI.** En Windows, git convierte
+   LF→CRLF al hacer checkout por omisión (los runners lo traen activado), y
+   entonces el `sha256` del fichero en disco no cuadra con el sello aunque nadie
+   lo haya tocado. Lo arregla `.gitattributes` con `* -text`; **no se toca ese
+   fichero** sin entender esto. Falló el primer CI de la repo por esto.
 
 ## Sincronía de `gui.py` con debian13-fisat
 

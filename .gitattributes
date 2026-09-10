@@ -1,0 +1,12 @@
+# El fin de línea NO se convierte en ningún fichero de esta repo.
+#
+# Motivo concreto: gui.py tiene que ser BYTE A BYTE idéntico a su copia de
+# debian13-fisat, y el sello sha256 de GUI_SYNC.md se calcula sobre los bytes
+# que hay en el disco. Los runners de Windows (y muchas instalaciones de Git
+# para Windows) traen core.autocrlf=true, así que al hacer checkout convierten
+# LF→CRLF y el sello deja de cuadrar aunque nadie haya tocado el fichero.
+# Fallo real: primer CI de la repo, 2026-09-10.
+#
+# «-text» solo desactiva la conversión; los diffs se siguen viendo como texto
+# (eso lo desactivaría «binary», que aquí no se usa).
+* -text
