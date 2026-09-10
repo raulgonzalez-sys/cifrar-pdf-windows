@@ -405,7 +405,9 @@ detección de ya-cifrado, espera de archivo con un fichero bloqueado a propósit
 *smoke test* de la GUI con `QT_QPA_PLATFORM=offscreen`, y build completo
 (PyInstaller + Inno Setup vía chocolatey) subiendo el instalador como artefacto.
 En un tag `v*`, release con el `CifrarPDF-Setup.exe` adjunto — mismo mecanismo de
-distribución que la repo de Debian.
+distribución que la repo de Debian. La entrega se puede lanzar también a mano
+desde Actions indicando la etiqueta (útil si quien publica no puede empujar
+tags); comprueba antes que esa etiqueta cuadra con la `MiVersion` del `.iss`.
 
 **Manual en máquina real (F5), lo que el CI no puede ver:** primera instalación
 como admin; alta de carpeta por un usuario sin privilegios; contraseña en el

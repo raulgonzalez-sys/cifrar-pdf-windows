@@ -6,6 +6,14 @@ on:
   push:
     tags:
       - "v*"
+  # También a mano desde la pestaña Actions, para cuando no se puede empujar un
+  # tag (credenciales limitadas a una rama, por ejemplo). La propia entrega crea
+  # la etiqueta sobre el commit que se elija al lanzarla.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Etiqueta a publicar, con la v delante (por ejemplo v1.0.0)"
+        required: true
 
 permissions:
   contents: write
@@ -19,6 +27,27 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      # Al lanzarla a mano la versión se teclea, así que puede no cuadrar con la
+      # que lleva el instalador: se pediría v1.1.0 y saldría publicado un
+      # CifrarPDF-Setup-1.0.0.exe. Mejor parar aquí que entregar eso a SAT.
+      - name: Comprobar que la etiqueta cuadra con la versión del instalador
+        shell: pwsh
+        env:
+          # Por variable de entorno, no interpolado en el guion: lo que se teclea
+          # al lanzarla es texto de fuera y ahí dentro sería ejecutable.
+          ETIQUETA: ${{ inputs.version || github.ref_name }}
+        run: |
+          if ($env:ETIQUETA -notmatch '^v\d+\.\d+\.\d+$') {
+            throw "La etiqueta '$($env:ETIQUETA)' no tiene la forma vX.Y.Z"
+          }
+          $linea = Select-String -Path empaquetar\CifrarPDF.iss -Pattern '#define MiVersion "([^"]+)"' | Select-Object -First 1
+          if (-not $linea) { throw "No encuentro MiVersion en empaquetar\CifrarPDF.iss" }
+          $declarada = $linea.Matches[0].Groups[1].Value
+          if ($declarada -ne $env:ETIQUETA.Substring(1)) {
+            throw "La etiqueta dice $($env:ETIQUETA) pero CifrarPDF.iss declara MiVersion $declarada"
+          }
+          Write-Host "Publicando $($env:ETIQUETA) con el instalador $declarada"
 
       - name: Instalar dependencias
         run: pip install -e ".[dev]"
@@ -41,6 +70,8 @@ jobs:
       - name: Publicar la entrega
         uses: softprops/action-gh-release@v2
         with:
+          # Al lanzarla a mano no hay ref de tag que valga: se le dice cuál crear.
+          tag_name: ${{ inputs.version || github.ref_name }}
           files: salida/*.exe
           body: |
             Instalador de **Cifrar PDF** para Windows 10/11 x64.
