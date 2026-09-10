@@ -26,9 +26,6 @@ jobs:
       - name: Lint (ruff)
         run: ruff check .
 
-      - name: Sincronía de la GUI con debian13-fisat
-        run: python herramientas/sincronizar_gui.py --comprobar-sello
-
       - name: Tests
         # La ventana se construye sin pantalla; el resto del backend corre de
         # verdad contra el Windows del runner.

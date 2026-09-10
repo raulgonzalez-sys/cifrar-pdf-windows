@@ -72,11 +72,12 @@ técnico. Los mensajes se escriben para ellas.
    peor forma de fallar. El CI lo comprueba ejecutando el `.exe` construido.
 8. **Nada de UPX** en el empaquetado: dispara falsos positivos de antivirus y no
    compensa.
-9. **`core.autocrlf` rompe el sello de la GUI.** En Windows, git convierte
-   LF→CRLF al hacer checkout por omisión (los runners lo traen activado), y
-   entonces el `sha256` del fichero en disco no cuadra con el sello aunque nadie
-   lo haya tocado. Lo arregla `.gitattributes` con `* -text`; **no se toca ese
-   fichero** sin entender esto. Falló el primer CI de la repo por esto.
+9. **`core.autocrlf` cambia los ficheros al hacer checkout.** En Windows, git
+   convierte LF→CRLF por omisión (los runners lo traen activado). Eso hizo
+   fallar el primer CI de la repo, y además haría que comparar `gui.py` con la
+   copia de Debian marcase **todas** las líneas como distintas sin que nadie
+   haya tocado nada. Lo desactiva `.gitattributes` con `* -text`: **no se toca
+   ese fichero** sin entender esto.
 10. **Parar el vigilante hay que pedirlo varias veces.** Uno recién lanzado tarda
     un par de segundos en tomar el mútex, y en ese hueco `activo()` es False; si
     se da por parado ahí, acaba de arrancar después y queda **huérfano**. Pasó en
@@ -86,18 +87,23 @@ técnico. Los mensajes se escriben para ellas.
     `$env:ProgramFiles` y deja `(x86)` como texto. Va con el nombre entre llaves,
     `${env:ProgramFiles(x86)}`. Rompió el paso del instalador en el CI.
 
-## Sincronía de `gui.py` con debian13-fisat
+## `gui.py` es un fork de la GUI de Debian
 
-`gui.py` es **byte a byte idéntico** a `archivos/fisat-cifrar-pdf-gui` de
-debian13-fisat; lo específico de cada sistema va detrás de `ES_WINDOWS`. Al
-tocarlo hay que propagarlo a la otra repo y resellar:
+`gui.py` **deriva** de `archivos/fisat-cifrar-pdf-gui` de debian13-fisat, pero
+**no es el mismo fichero**: allí la interfaz no lleva las ramas `ES_WINDOWS`.
+Se valoró unificarlas y se descartó, para no cambiar la interfaz de unos puestos
+que están en producción y funcionan solo por acomodar el porte.
+
+Consecuencia asumida: **una mejora de interfaz se hace dos veces**. Al tocar
+`gui.py`, dejar dicho en el commit si el cambio debería ir también a Debian (y al
+revés). Para ver diferencias:
 
 ```bash
-python herramientas/sincronizar_gui.py --llevar /ruta/a/debian13-fisat
-python herramientas/sincronizar_gui.py --comprobar-sello
+python herramientas/comparar_gui.py /ruta/a/debian13-fisat
 ```
 
-El CI falla si `gui.py` cambia sin resellar. Detalles en `GUI_SYNC.md`.
+**No copiar el fichero entero de una copia a la otra**: se llevaría por delante
+las ramas de plataforma del destino. Detalles en `GUI_SYNC.md`.
 
 ## Qué NO se puede verificar en CI
 

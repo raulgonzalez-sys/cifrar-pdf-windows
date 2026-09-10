@@ -11,10 +11,10 @@
 # Si PyQt6 no está disponible, el bash (--lanzar) ni la invoca: cae a kdialog
 # o a la TUI por su cuenta.
 #
-# FICHERO COMPARTIDO con el porte a Windows (repo cifrar-pdf-windows, gui.py):
-# las dos copias son byte a byte idénticas y todo lo específico de cada sistema
-# está detrás de ES_WINDOWS. Si tocas este fichero, sincroniza la otra copia
-# (ver GUI_SYNC.md en esa repo).
+# Esta versión DERIVA de archivos/fisat-cifrar-pdf-gui de la repo
+# debian13-fisat, pero es un FORK: allí la interfaz no lleva las ramas
+# ES_WINDOWS de más abajo. Una mejora de interfaz hay que hacerla en las dos
+# copias, a mano; ver GUI_SYNC.md y herramientas/comparar_gui.py.
 
 import os
 import shutil

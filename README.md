@@ -10,6 +10,8 @@ Administrador de credenciales, autoarranque por usuario e instalador.
 
 [debian13-fisat]: https://github.com/raulgonzalez-sys/debian13-fisat
 
+Las decisiones del porte y por qué son así están en **`PLAN.md`**.
+
 ---
 
 ## Para quien lo usa
@@ -132,11 +134,13 @@ asoma ninguna ventana negra).
 | `cifrarpdf/proceso.py` | Instancia única (mútex) y parada ordenada (evento con nombre) |
 | `cifrarpdf/autostart.py` | Autoarranque por usuario en `HKCU\...\Run` |
 | `cifrarpdf/cli.py` | El contrato `--gui-*` — **idéntico al del backend bash de Debian** |
-| `gui.py` | La ventana. **Copia sincronizada** de `archivos/fisat-cifrar-pdf-gui` (ver `GUI_SYNC.md`) |
+| `gui.py` | La ventana. **Fork** de `archivos/fisat-cifrar-pdf-gui` de debian13-fisat: los cambios se portan a mano (ver `GUI_SYNC.md`) |
 
 El contrato `--gui-*` y su salida (`OK [dato]` / `ERR mensaje`, contraseña por
-entrada estándar) son lo que hace que la ventana sea la misma en los dos
-sistemas. Cambiarlo aquí obliga a cambiarlo también en el bash de Debian.
+entrada estándar) son lo que permite que la ventana sea prácticamente la misma en
+los dos sistemas sin duplicar la lógica. Cambiarlo aquí obliga a cambiarlo
+también en el bash de Debian; `herramientas/comparar_con_bash.sh` comprueba que
+las dos implementaciones siguen respondiendo igual.
 
 ## Licencia
 
