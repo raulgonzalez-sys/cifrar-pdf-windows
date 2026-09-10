@@ -178,6 +178,65 @@ def _ejecutar() -> int:
         rutas.log("Ninguna carpeta utilizable: saliendo.")
         return 0
 
+    cola: queue.Queue[Path] = queue.Queue()
+    parar = threading.Event()
+    hilo = threading.Thread(target=_trabajador, args=(cola, mapa, parar),
+                            name="cifrador", daemon=True)
+    hilo.start()
+
+    observador = Observer()
+    manejador = _Manejador(cola)
+    for carpeta in mapa.values():
+        observador.schedule(manejador, str(carpeta.ruta), recursive=False)
+    observador.start()
+
+    _encolar_existentes(cola, mapa)
+
+    try:
+        codigo = _esperar_parada()
+    finally:
+        notificar.registrar_emisor(None)
+        parar.set()
+        observador.stop()
+        observador.join(2)
+        hilo.join(5)
+        rutas.log("Vigilancia detenida.")
+    return codigo
+
+
+def _esperar_parada() -> int:
+    """Se queda esperando hasta que alguien pida la parada.
+
+    Con icono en el área de notificación si se puede, y sin él si no. **Cifrar no
+    puede depender de que haya bandeja**: el icono es una comodidad (avisos y
+    saber que está funcionando), no la función de la herramienta. Si montar la
+    interfaz falla —una sesión sin escritorio, un perfil raro, Qt que no
+    arranca—, se sigue vigilando igual y se deja dicho en el registro.
+
+    Esto no es teórico: en el CI (que corre sin sesión de escritorio) el proceso
+    se quedaba colgado montando la bandeja y sobrevivía a la petición de parada,
+    apareciendo como «Terminate orphan process: CifrarPDF» al final del trabajo.
+    """
+    if os.environ.get("CIFRARPDF_SIN_BANDEJA") == "1":
+        rutas.log("CIFRARPDF_SIN_BANDEJA=1: se vigila sin icono en la bandeja.")
+        return _bucle_simple()
+    try:
+        return _bucle_con_bandeja()
+    except Exception as error:  # noqa: BLE001 — cualquier fallo de Qt cae al bucle simple
+        rutas.log(f"AVISO: no se pudo montar el icono del área de notificación "
+                  f"({error}); se sigue vigilando sin él.")
+        return _bucle_simple()
+
+
+def _bucle_simple() -> int:
+    """Espera la parada sin interfaz. Los avisos van solo al registro."""
+    while not proceso.parada_pedida(COMPROBAR_PARADA_MS):
+        pass
+    return 0
+
+
+def _bucle_con_bandeja() -> int:
+    """Icono en el área de notificación, su menú y los avisos del sistema."""
     from PyQt6.QtCore import QObject, QTimer, pyqtSignal
     from PyQt6.QtGui import QAction, QIcon
     from PyQt6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
@@ -190,6 +249,12 @@ def _ejecutar() -> int:
     aplicacion = QApplication(sys.argv)
     aplicacion.setApplicationName("Cifrar PDF")
     aplicacion.setQuitOnLastWindowClosed(False)
+
+    if not QSystemTrayIcon.isSystemTrayAvailable():
+        # Sin área de notificación, la ventana de Qt no aporta nada: mejor el
+        # bucle simple, que no depende de que haya un escritorio vivo.
+        rutas.log("No hay área de notificación disponible: se vigila sin icono.")
+        return _bucle_simple()
 
     icono = QIcon(str(_ruta_icono()))
     bandeja = QSystemTrayIcon(icono)
@@ -210,10 +275,7 @@ def _ejecutar() -> int:
         lambda motivo: _abrir_gestion()
         if motivo == QSystemTrayIcon.ActivationReason.DoubleClick else None
     )
-    if QSystemTrayIcon.isSystemTrayAvailable():
-        bandeja.show()
-    else:
-        rutas.log("AVISO: no hay área de notificación; los avisos solo irán al registro.")
+    bandeja.show()
 
     puente = Puente()
     puente.aviso.connect(
@@ -225,36 +287,13 @@ def _ejecutar() -> int:
         lambda titulo, texto, es_error: puente.aviso.emit(titulo, texto, es_error)
     )
 
-    cola: queue.Queue[Path] = queue.Queue()
-    parar = threading.Event()
-    hilo = threading.Thread(target=_trabajador, args=(cola, mapa, parar),
-                            name="cifrador", daemon=True)
-    hilo.start()
-
-    observador = Observer()
-    manejador = _Manejador(cola)
-    for carpeta in mapa.values():
-        observador.schedule(manejador, str(carpeta.ruta), recursive=False)
-    observador.start()
-
-    _encolar_existentes(cola, mapa)
-
     temporizador = QTimer()
     temporizador.setInterval(COMPROBAR_PARADA_MS)
     temporizador.timeout.connect(
         lambda: aplicacion.quit() if proceso.parada_pedida(0) else None
     )
     temporizador.start()
-
-    codigo = aplicacion.exec()
-
-    notificar.registrar_emisor(None)
-    parar.set()
-    observador.stop()
-    observador.join(2)
-    hilo.join(5)
-    rutas.log("Vigilancia detenida.")
-    return codigo
+    return aplicacion.exec()
 
 
 def _ruta_icono() -> Path:

@@ -51,26 +51,79 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "--gui-listar falló con $LASTEXITCODE" }
           & "dist\CifrarPDF\CifrarPDF-cli.exe" --ayuda | Select-Object -First 1
 
-      - name: Ciclo completo contra el ejecutable (alta, listado, baja)
-        # Prueba de extremo a extremo con el binario ya empaquetado: crea una
-        # carpeta con contraseña, comprueba que aparece listada con contraseña
-        # guardada, y la quita. Toca el Administrador de credenciales de verdad.
+      - name: Ciclo completo con el vigilante (alta, cifrado real, baja)
         shell: pwsh
+        env:
+          # El runner no tiene sesión de escritorio, así que el vigilante corre
+          # sin icono en el área de notificación. Que esto funcione es parte de
+          # lo que se prueba: cifrar NO puede depender de que haya bandeja.
+          CIFRARPDF_SIN_BANDEJA: "1"
         run: |
           $env:CIFRARPDF_CONFIG_DIR = "$env:RUNNER_TEMP\cfg"
           $env:CIFRARPDF_DATOS_DIR  = "$env:RUNNER_TEMP\datos"
           $env:CIFRARPDF_ESCRITORIO = "$env:RUNNER_TEMP\Escritorio"
           New-Item -ItemType Directory -Force -Path $env:CIFRARPDF_ESCRITORIO | Out-Null
           $exe = "dist\CifrarPDF\CifrarPDF-cli.exe"
-          $alta = "contraseña-de-prueba" | & $exe --gui-add "Informes"
+          $log = "$env:CIFRARPDF_DATOS_DIR\cifrar-pdf.log"
+          # Contraseña sin acentos A PROPÓSITO: aquí se prueba el circuito, no la
+          # codificación de PowerShell. Los acentos y símbolos en la contraseña
+          # los cubre tests/test_secreto.py, que no pasa por una tubería del shell.
+          $clave = "contrasena-de-prueba"
+
+          # 1. Alta: crea la carpeta, guarda la contraseña en el Administrador de
+          #    credenciales de Windows y arranca el vigilante.
+          $alta = $clave | & $exe --gui-add "Informes"
           if ($alta -ne "OK informes") { throw "alta: '$alta'" }
-          if (-not (Test-Path "$env:CIFRARPDF_ESCRITORIO\Informes")) { throw "no creó la carpeta" }
+          $carpeta = "$env:CIFRARPDF_ESCRITORIO\Informes"
+          if (-not (Test-Path $carpeta)) { throw "no creó la carpeta" }
+
+          # 2. El listado: cinco campos, con carpeta existente y contraseña puesta.
           $fila = (& $exe --gui-listar) -split "`t"
           if ($fila.Count -ne 5) { throw "listado con $($fila.Count) campos" }
           if ($fila[3] -ne "1" -or $fila[4] -ne "1") { throw "listado: $($fila -join '|')" }
+
+          # 3. El vigilante tiene que registrarse: arrancar el ejecutable y cargar
+          #    sus dependencias tarda unos segundos en un runner frío.
+          $activo = "0"
+          foreach ($i in 1..60) {
+            $activo = & $exe --gui-estado
+            if ($activo -eq "1") { break }
+            Start-Sleep -Milliseconds 500
+          }
+          if ($activo -ne "1") {
+            if (Test-Path $log) { Get-Content $log }
+            throw "el vigilante no se registró en 30 s"
+          }
+
+          # 4. Lo que de verdad importa: soltar un PDF y que quede protegido.
+          python herramientas\pdf_de_prueba.py "$env:RUNNER_TEMP\prueba.pdf" 2
+          Copy-Item "$env:RUNNER_TEMP\prueba.pdf" "$carpeta\informe.pdf"
+          $cifrado = $false
+          foreach ($i in 1..60) {
+            python herramientas\es_cifrado.py "$carpeta\informe.pdf" *> $null
+            if ($LASTEXITCODE -eq 0) { $cifrado = $true; break }
+            Start-Sleep -Milliseconds 500
+          }
+          if (-not $cifrado) {
+            if (Test-Path $log) { Get-Content $log }
+            throw "el PDF NO se cifró en 30 s"
+          }
+
+          # 5. Y que se abra con su contraseña, con el contenido intacto.
+          python -c "import pikepdf,sys; d=pikepdf.open(sys.argv[1], password=sys.argv[2]); assert len(d.pages)==2, 'páginas perdidas'; assert d.encryption.R==6, 'no es AES-256'; print('abre con la contraseña, 2 páginas, AES-256')" "$carpeta\informe.pdf" $clave
+
+          # 6. Baja: para el vigilante SIN dejar procesos sueltos y borra la carpeta.
           $baja = & $exe --gui-remove "informes" --borrar-carpeta
           if ($baja -ne "OK") { throw "baja: '$baja'" }
-          if (Test-Path "$env:CIFRARPDF_ESCRITORIO\Informes") { throw "no borró la carpeta" }
+          if (Test-Path $carpeta) { throw "no borró la carpeta" }
+          $activo = & $exe --gui-estado
+          if ($activo -ne "0") {
+            if (Test-Path $log) { Get-Content $log }
+            throw "el vigilante sigue activo tras la baja (quedaría huérfano)"
+          }
+
+          Write-Host "--- registro del vigilante ---"
+          if (Test-Path $log) { Get-Content $log }
 
       - name: Instalador (Inno Setup)
         shell: pwsh
