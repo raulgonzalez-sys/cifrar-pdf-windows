@@ -1,0 +1,85 @@
+name: CI
+
+# Se ejecuta en windows-latest a propósito: es el único sitio donde estas
+# pruebas valen algo. El backend usa el registro, DPAPI, el Administrador de
+# credenciales, mútex y eventos con nombre — en Linux la mitad son ramas de
+# desarrollo que no representan lo que hará el equipo de una trabajadora.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  pruebas:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Instalar dependencias
+        run: pip install -e ".[dev]"
+
+      - name: Lint (ruff)
+        run: ruff check .
+
+      - name: Sincronía de la GUI con debian13-fisat
+        run: python herramientas/sincronizar_gui.py --comprobar-sello
+
+      - name: Tests
+        # La ventana se construye sin pantalla; el resto del backend corre de
+        # verdad contra el Windows del runner.
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: pytest -q
+
+      - name: Construir los ejecutables
+        run: pyinstaller empaquetar/CifrarPDF.spec --noconfirm
+
+      - name: Comprobar que el ejecutable de consola responde
+        # La prueba más básica y la que más veces se rompe al empaquetar: que el
+        # .exe arranque y conteste el contrato --gui-*. Si un «hiddenimport»
+        # falta, esto lo caza aquí y no en el equipo de una trabajadora.
+        shell: pwsh
+        run: |
+          $salida = & "dist\CifrarPDF\CifrarPDF-cli.exe" --gui-estado
+          if ($salida -notmatch '^[01]$') { throw "--gui-estado devolvió: '$salida'" }
+          $lista = & "dist\CifrarPDF\CifrarPDF-cli.exe" --gui-listar
+          if ($LASTEXITCODE -ne 0) { throw "--gui-listar falló con $LASTEXITCODE" }
+          & "dist\CifrarPDF\CifrarPDF-cli.exe" --ayuda | Select-Object -First 1
+
+      - name: Ciclo completo contra el ejecutable (alta, listado, baja)
+        # Prueba de extremo a extremo con el binario ya empaquetado: crea una
+        # carpeta con contraseña, comprueba que aparece listada con contraseña
+        # guardada, y la quita. Toca el Administrador de credenciales de verdad.
+        shell: pwsh
+        run: |
+          $env:CIFRARPDF_CONFIG_DIR = "$env:RUNNER_TEMP\cfg"
+          $env:CIFRARPDF_DATOS_DIR  = "$env:RUNNER_TEMP\datos"
+          $env:CIFRARPDF_ESCRITORIO = "$env:RUNNER_TEMP\Escritorio"
+          New-Item -ItemType Directory -Force -Path $env:CIFRARPDF_ESCRITORIO | Out-Null
+          $exe = "dist\CifrarPDF\CifrarPDF-cli.exe"
+          $alta = "contraseña-de-prueba" | & $exe --gui-add "Informes"
+          if ($alta -ne "OK informes") { throw "alta: '$alta'" }
+          if (-not (Test-Path "$env:CIFRARPDF_ESCRITORIO\Informes")) { throw "no creó la carpeta" }
+          $fila = (& $exe --gui-listar) -split "`t"
+          if ($fila.Count -ne 5) { throw "listado con $($fila.Count) campos" }
+          if ($fila[3] -ne "1" -or $fila[4] -ne "1") { throw "listado: $($fila -join '|')" }
+          $baja = & $exe --gui-remove "informes" --borrar-carpeta
+          if ($baja -ne "OK") { throw "baja: '$baja'" }
+          if (Test-Path "$env:CIFRARPDF_ESCRITORIO\Informes") { throw "no borró la carpeta" }
+
+      - name: Instalador (Inno Setup)
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+          & "$env:ProgramFiles(x86)\Inno Setup 6\ISCC.exe" empaquetar\CifrarPDF.iss
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CifrarPDF-Setup
+          path: salida/*.exe
+          if-no-files-found: error

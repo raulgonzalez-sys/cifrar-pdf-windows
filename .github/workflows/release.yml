@@ -1,0 +1,51 @@
+name: Release
+
+# Igual que en debian13-fisat: un tag «v*» publica la entrega. Aquí lo que se
+# adjunta es el instalador, que es lo que SAT necesita para desplegarlo.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  publicar:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias
+        run: pip install -e ".[dev]"
+
+      - name: Tests antes de publicar
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: pytest -q
+
+      - name: Construir ejecutables e instalador
+        shell: pwsh
+        run: |
+          pyinstaller empaquetar/CifrarPDF.spec --noconfirm
+          choco install innosetup --no-progress -y
+          & "$env:ProgramFiles(x86)\Inno Setup 6\ISCC.exe" empaquetar\CifrarPDF.iss
+
+      - name: Publicar la entrega
+        uses: softprops/action-gh-release@v2
+        with:
+          files: salida/*.exe
+          body: |
+            Instalador de **Cifrar PDF** para Windows 10/11 x64.
+
+            Instalación por equipo (necesita administrador). El ejecutable **no
+            está firmado**: la primera vez Windows mostrará el aviso de
+            SmartScreen → «Más información» → «Ejecutar de todas formas». Si el
+            fichero llega por carpeta de red o en un ZIP, además puede hacer
+            falta Propiedades → **Desbloquear**.
+
+            Ver el README para el procedimiento completo.
