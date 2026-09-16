@@ -4,8 +4,8 @@
 # especialmente aquí, porque el ejecutable NO va firmado.
 VSVersionInfo(
     ffi=FixedFileInfo(
-        filevers=(1, 0, 0, 0),
-        prodvers=(1, 0, 0, 0),
+        filevers=(1, 1, 0, 0),
+        prodvers=(1, 1, 0, 0),
         mask=0x3F,
         flags=0x0,
         OS=0x40004,
@@ -20,11 +20,11 @@ VSVersionInfo(
                 [
                     StringStruct("CompanyName", "Fundación FISAT Salesianos Social"),
                     StringStruct("FileDescription", "Cifrar PDF — cifra los PDF que sueltas en tus carpetas"),
-                    StringStruct("FileVersion", "1.0.0.0"),
+                    StringStruct("FileVersion", "1.1.0.0"),
                     StringStruct("InternalName", "CifrarPDF"),
                     StringStruct("OriginalFilename", "CifrarPDF.exe"),
                     StringStruct("ProductName", "Cifrar PDF (FISAT)"),
-                    StringStruct("ProductVersion", "1.0.0.0"),
+                    StringStruct("ProductVersion", "1.1.0.0"),
                     StringStruct("LegalCopyright", "Fundación FISAT Salesianos Social"),
                 ],
             )

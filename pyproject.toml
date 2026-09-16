@@ -1,6 +1,6 @@
 [project]
 name = "cifrarpdf"
-version = "1.0.0"
+version = "1.1.0"
 description = "Cifrar PDF (FISAT) para Windows 10/11: cifra con contraseña los PDF que se sueltan en carpetas del Escritorio"
 requires-python = ">=3.11"
 license = { text = "GPL-3.0-or-later" }

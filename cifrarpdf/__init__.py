@@ -8,4 +8,4 @@ subcomandos «--gui-*» de cifrarpdf.cli, exactamente el mismo contrato que usa
 el backend bash de los puestos Debian.
 """
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
