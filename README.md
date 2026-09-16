@@ -4,11 +4,9 @@ Cifra con contraseña, automáticamente, los PDF que sueltas en tus carpetas.
 Pensado para informes confidenciales que hay que enviar a terceros.
 
 Es el porte a Windows de la herramienta `fisat-cifrar-pdf` de los puestos
-Debian 13 + KDE de la Fundación FISAT ([debian13-fisat]). Misma idea, mismo
-cifrado (**AES-256**), misma interfaz — pero con las piezas de Windows:
+Debian 13 + KDE de la Fundación FISAT (repo `debian13-fisat`). Misma idea,
+mismo cifrado (**AES-256**), misma interfaz — pero con las piezas de Windows:
 Administrador de credenciales, autoarranque por usuario e instalador.
-
-[debian13-fisat]: https://github.com/raulgonzalez-sys/debian13-fisat
 
 Las decisiones del porte y por qué son así están en **`PLAN.md`**.
 

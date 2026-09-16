@@ -7,7 +7,7 @@ alguien se pregunte «¿por qué esto está hecho así?», la respuesta suele es
 aquí.
 
 Fecha: 2026-09-10 · Estado: **fases 0 a 4 hechas y el código ya vive en su repo**
-(`raulgonzalez-sys/cifrar-pdf-windows`, privada). Falta la fase 5: **probarlo en
+(`raulgonzalez-sys/cifrar-pdf-windows`). Falta la fase 5: **probarlo en
 un Windows de verdad** — ver «Estado de ejecución» justo debajo.
 
 ---
@@ -27,7 +27,7 @@ un Windows de verdad** — ver «Estado de ejecución» justo debajo.
 
 ## 0 bis. Estado de ejecución (2026-09-10)
 
-El código está en esta repo, **`raulgonzalez-sys/cifrar-pdf-windows`** (privada,
+El código está en esta repo, **`raulgonzalez-sys/cifrar-pdf-windows`** (licencia
 GPL v3 — que con PyQt6 no es un trámite, es la licencia obligada salvo comprar la
 comercial de Riverbank). En debian13-fisat no quedó nada del porte: se decidió
 **no tocar aquellos puestos**, así que la interfaz de aquí es un fork de la de
@@ -253,7 +253,7 @@ cifrar-pdf-windows/
 Cada fase termina con algo verificable. No pasar a la siguiente sin su criterio.
 
 **F0 · Andamiaje** (~0,5 j)
-Crear repo privada, estructura, `pyproject.toml` con versiones fijadas, CLAUDE.md
+Crear la repo, estructura, `pyproject.toml` con versiones fijadas, CLAUDE.md
 propio, CI vacío que ya pase.
 *Hecho cuando:* `ruff` y `pytest` verdes en `windows-latest`.
 
