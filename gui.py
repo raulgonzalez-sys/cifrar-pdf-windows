@@ -30,10 +30,10 @@ try:
     )
     from PyQt6.QtWidgets import (
         QApplication, QDialog, QDialogButtonBox, QFormLayout, QFrame,
-        QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget,
+        QGroupBox, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget,
         QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPlainTextEdit,
-        QPushButton, QSizePolicy, QStyle, QToolBar, QToolButton, QVBoxLayout,
-        QWidget,
+        QPushButton, QRadioButton, QSizePolicy, QStyle, QToolBar, QToolButton,
+        QVBoxLayout, QWidget,
     )
 except ImportError:
     sys.stderr.write(
@@ -197,12 +197,14 @@ _CHIP_CLARO = {
     "aviso": ("#fdecd9", "#a84300"),
     "error": ("#fbe3e0", "#b03a2e"),
     "nuevo": ("#fff3cd", "#8a6d00"),
+    "info":  ("#dce7f7", "#1f4f8f"),
 }
 _CHIP_OSCURO = {
     "ok":    ("#1f3d2a", "#7fd6a0"),
     "aviso": ("#3d3019", "#e0a76b"),
     "error": ("#3d2422", "#e08a80"),
     "nuevo": ("#3d3410", "#f0c869"),
+    "info":  ("#1e2e45", "#8ab4e8"),
 }
 
 
@@ -297,24 +299,65 @@ class IndicadorVigilante(QLabel):
 
 # Diálogo de contraseña (alta de carpeta o cambio de contraseña)
 class DialogoContrasena(QDialog):
-    def __init__(self, parent=None, pedir_nombre=False, nombre_def="Cifrar PDF"):
+    """Contraseña de una carpeta, con el selector de modo: contraseña fija
+    guardada, o preguntar cada vez que se suelte un PDF (entonces no se pide
+    ni se guarda nada aquí; la pedirá el vigilante en el momento de cifrar)."""
+
+    def __init__(self, parent=None, pedir_nombre=False,
+                 nombre_def="Cifrar PDF", modo_actual="fija"):
         super().__init__(parent)
         self.pedir_nombre = pedir_nombre
         self.setWindowTitle("Nueva carpeta de cifrado" if pedir_nombre
-                            else "Cambiar contraseña")
+                            else "Contraseña y modo")
         self.setWindowIcon(icono_app())
-        self.setMinimumWidth(420)
+        self.setMinimumWidth(460)
 
         layout = QVBoxLayout(self)
-        form = QFormLayout()
-        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
 
         self.campo_nombre = None
         if pedir_nombre:
+            form_nombre = QFormLayout()
+            form_nombre.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
             self.campo_nombre = QLineEdit(nombre_def)
             self.campo_nombre.setClearButtonEnabled(True)
             self.campo_nombre.textChanged.connect(self._validar)
-            form.addRow("Nombre de la carpeta:", self.campo_nombre)
+            form_nombre.addRow("Nombre de la carpeta:", self.campo_nombre)
+            layout.addLayout(form_nombre)
+
+        # Selector radial del modo: es lo que decide si abajo hay que escribir
+        # una contraseña o no.
+        grupo = QGroupBox("¿Cómo quieres la contraseña?")
+        vgrupo = QVBoxLayout(grupo)
+        self.radio_fija = QRadioButton("Usar siempre esta contraseña")
+        self.radio_fija.setToolTip(
+            "Se guarda una sola vez (en el Administrador de credenciales de "
+            "Windows) y se aplica sola a cada PDF que sueltes en la carpeta.")
+        self.radio_preguntar = QRadioButton(
+            "Preguntar cada vez que suelte un PDF")
+        self.radio_preguntar.setToolTip(
+            "No se guarda ninguna contraseña: se pide en el momento de cifrar. "
+            "Si sueltas varios PDF de golpe, se pregunta una sola vez.")
+        vgrupo.addWidget(self.radio_fija)
+        vgrupo.addWidget(self.radio_preguntar)
+        pista = QLabel(
+            "Con «preguntar cada vez» no queda ninguna contraseña guardada en "
+            "el equipo y cada PDF puede llevar la suya.")
+        pista.setWordWrap(True)
+        pista.setStyleSheet("color: palette(mid);")
+        vgrupo.addWidget(pista)
+        layout.addWidget(grupo)
+
+        if modo_actual == "preguntar":
+            self.radio_preguntar.setChecked(True)
+        else:
+            self.radio_fija.setChecked(True)
+
+        # Los campos de contraseña van en su propia caja para poder ocultarlos
+        # enteros (etiquetas incluidas) en el modo «preguntar».
+        self.caja_pass = QWidget()
+        form = QFormLayout(self.caja_pass)
+        form.setContentsMargins(0, 0, 0, 0)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
 
         self.pass1 = QLineEdit()
         self.pass1.setEchoMode(QLineEdit.EchoMode.Password)
@@ -345,7 +388,7 @@ class DialogoContrasena(QDialog):
 
         form.addRow("Contraseña:", cont_pass)
         form.addRow("Repite la contraseña:", self.pass2)
-        layout.addLayout(form)
+        layout.addWidget(self.caja_pass)
 
         self.aviso = QLabel(f"La contraseña debe tener al menos {MIN_PASS} caracteres.")
         self.aviso.setWordWrap(True)
@@ -362,8 +405,16 @@ class DialogoContrasena(QDialog):
         self.botones.rejected.connect(self.reject)
         layout.addWidget(self.botones)
 
-        self._validar()
+        self.radio_fija.toggled.connect(self._cambio_modo)
+        self._cambio_modo()
         (self.campo_nombre or self.pass1).setFocus()
+
+    def _cambio_modo(self, _marcado=None):
+        """Muestra u oculta los campos de contraseña según el modo elegido."""
+        fija = self.radio_fija.isChecked()
+        self.caja_pass.setVisible(fija)
+        self._validar()
+        self.adjustSize()
 
     def _alternar_visible(self, visible):
         modo = (QLineEdit.EchoMode.Normal if visible
@@ -385,6 +436,14 @@ class DialogoContrasena(QDialog):
                 problema = "Escribe un nombre para la carpeta."
             elif "/" in nombre:
                 problema = "El nombre no puede contener «/»."
+        if not problema and self.modo() == "preguntar":
+            # No hay contraseña que validar: se pedirá al cifrar.
+            self.botones.button(
+                QDialogButtonBox.StandardButton.Ok).setEnabled(True)
+            self.aviso.setText(
+                "Se te pedirá la contraseña cada vez que sueltes un PDF.")
+            self.aviso.setStyleSheet("color: palette(link);")
+            return
         if not problema:
             if len(p1) < MIN_PASS:
                 problema = f"La contraseña debe tener al menos {MIN_PASS} caracteres."
@@ -405,8 +464,11 @@ class DialogoContrasena(QDialog):
     def nombre(self):
         return self.campo_nombre.text().strip() if self.campo_nombre else ""
 
+    def modo(self):
+        return "fija" if self.radio_fija.isChecked() else "preguntar"
+
     def contrasena(self):
-        return self.pass1.text()
+        return self.pass1.text() if self.modo() == "fija" else ""
 
 
 class DialogoRegistro(QDialog):
@@ -563,7 +625,7 @@ class Ventana(QMainWindow):
         self.act_anadir.triggered.connect(self.anadir)
         self._configurar_accion(
             self.act_anadir, QKeySequence(Qt.Key.Key_Insert),
-            "Crear una carpeta nueva y definir su contraseña")
+            "Crear una carpeta nueva y elegir cómo va su contraseña")
 
         self.act_renombrar = QAction(
             tema("edit-rename", "document-edit"), "Renombrar", self)
@@ -578,7 +640,8 @@ class Ventana(QMainWindow):
         self.act_clave.triggered.connect(self.cambiar_clave)
         self._configurar_accion(
             self.act_clave, QKeySequence("Ctrl+P"),
-            "Cambiar la contraseña de la carpeta seleccionada")
+            "Cambiar la contraseña de la carpeta seleccionada, o pasar a "
+            "que se pregunte cada vez")
 
         self.act_abrir = QAction(
             tema("folder-open", "document-open-folder"), "Abrir carpeta", self)
@@ -725,6 +788,9 @@ class Ventana(QMainWindow):
                     "carpeta": partes[2],
                     "existe": partes[3] == "1",
                     "tiene_clave": partes[4] == "1",
+                    # 6º campo: lo añadió el selector de modo. Si faltara
+                    # (backend antiguo), «fija» es el comportamiento de siempre.
+                    "modo": partes[5] if len(partes) >= 6 else "fija",
                 })
         return filas
 
@@ -945,11 +1011,18 @@ class Ventana(QMainWindow):
                 widget._lbl_contador = contador  # color según selección
             h.addWidget(contador)
 
-        # Chip de estado solo si hay un PROBLEMA (sin contraseña o carpeta no
-        # encontrada); si todo está bien no se muestra nada — la ausencia de
-        # aviso ya indica que está lista.
+        # Chip de estado. Solo se avisa si hay un PROBLEMA (sin contraseña o
+        # carpeta no encontrada); si todo está bien no se muestra nada — la
+        # ausencia de aviso ya indica que está lista. La excepción es el modo
+        # «preguntar»: ahí no hay contraseña guardada A PROPÓSITO, así que se
+        # muestra como información y nunca como error.
         texto_estado = clave = None
-        if not fila["tiene_clave"]:
+        if fila.get("modo") == "preguntar":
+            if not fila["existe"]:
+                texto_estado, clave = "⚠  Carpeta no encontrada", "aviso"
+            else:
+                texto_estado, clave = "🔑  Pregunta cada vez", "info"
+        elif not fila["tiene_clave"]:
             texto_estado, clave = "⚠  Sin contraseña", "error"
         elif not fila["existe"]:
             texto_estado, clave = "⚠  Carpeta no encontrada", "aviso"
@@ -957,6 +1030,10 @@ class Ventana(QMainWindow):
             fondo, color = colores_chip(clave, oscuro)
             estado = QLabel(texto_estado)
             estado.setStyleSheet(f"{pill} background: {fondo}; color: {color};")
+            if clave == "info":
+                estado.setToolTip(
+                    "Esta carpeta no guarda contraseña: se te pedirá cada vez "
+                    "que sueltes un PDF en ella.")
             h.addWidget(estado)
 
         widget.setToolTip(fila["carpeta"])
@@ -992,13 +1069,19 @@ class Ventana(QMainWindow):
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
         rc, salida, err = backend(
-            ["--gui-add", dlg.nombre()], entrada=dlg.contrasena())
+            ["--gui-add", dlg.nombre(), "--modo", dlg.modo()],
+            entrada=dlg.contrasena())
         if rc != 0:
             self._error(mensaje_backend(salida or err,
                                         "No se pudo crear la carpeta."))
             return
         self.refrescar()
-        self._aviso(f"Carpeta «{dlg.nombre()}» lista y vigilándose.")
+        if dlg.modo() == "preguntar":
+            self._aviso(f"Carpeta «{dlg.nombre()}» lista y vigilándose.\n"
+                        "Se te pedirá la contraseña cada vez que sueltes "
+                        "un PDF en ella.")
+        else:
+            self._aviso(f"Carpeta «{dlg.nombre()}» lista y vigilándose.")
 
     def renombrar(self):
         fila = self.fila_seleccionada()
@@ -1024,17 +1107,25 @@ class Ventana(QMainWindow):
         fila = self.fila_seleccionada()
         if fila is None:
             return
-        dlg = DialogoContrasena(self, pedir_nombre=False)
+        dlg = DialogoContrasena(self, pedir_nombre=False,
+                                modo_actual=fila.get("modo", "fija"))
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
         rc, salida, err = backend(
-            ["--gui-set-pass", fila["id"]], entrada=dlg.contrasena())
+            ["--gui-set-pass", fila["id"], "--modo", dlg.modo()],
+            entrada=dlg.contrasena())
         if rc != 0:
             self._error(mensaje_backend(salida or err,
                                         "No se pudo cambiar la contraseña."))
             return
-        self._aviso(f"Contraseña actualizada para «{fila['nombre']}».\n"
-                    "Se aplicará al próximo PDF que cifres en esa carpeta.")
+        self.refrescar()
+        if dlg.modo() == "preguntar":
+            self._aviso(f"«{fila['nombre']}» pedirá la contraseña cada vez "
+                        "que sueltes un PDF.\n"
+                        "No queda ninguna contraseña guardada.")
+        else:
+            self._aviso(f"Contraseña actualizada para «{fila['nombre']}».\n"
+                        "Se aplicará al próximo PDF que cifres en esa carpeta.")
 
     def abrir_carpeta(self):
         fila = self.fila_seleccionada()

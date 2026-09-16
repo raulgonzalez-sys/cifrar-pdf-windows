@@ -28,7 +28,9 @@ técnico. Los mensajes se escriben para ellas.
   un comentario por qué**.
 - **El contrato `--gui-*` es intocable** sin cambiar también el bash. Su forma
   está en `cifrarpdf/cli.py` y en el README; los tests de `tests/test_cli.py`
-  existen para que no se rompa por descuido.
+  existen para que no se rompa por descuido. `herramientas/comparar_con_bash.sh`
+  lo comprueba contra el bash de verdad (en Linux, con un checkout de
+  debian13-fisat al lado).
 - **La contraseña nunca en `argv`.** Siempre por entrada estándar. En un
   argumento sería visible en la lista de procesos.
 - **Nada de migraciones.** Igual que en debian13-fisat: instalaciones nuevas. No
@@ -86,6 +88,20 @@ técnico. Los mensajes se escriben para ellas.
 11. **`"$env:ProgramFiles(x86)"` no se expande en PowerShell**: parsea
     `$env:ProgramFiles` y deja `(x86)` como texto. Va con el nombre entre llaves,
     `${env:ProgramFiles(x86)}`. Rompió el paso del instalador en el CI.
+12. **El diálogo del modo «preguntar» no puede ser un proceso aparte.** El bash
+    de Debian lanza kdialog (o la propia GUI con `--pedir-pass`) y recoge la
+    contraseña por la salida estándar del hijo. Aquí eso no vale por la trampa 1
+    —en un `.exe` sin consola el `print` se descarta— y además Qt solo construye
+    ventanas en el hilo principal. Por eso lo muestra **el propio vigilante** en
+    su hilo de Qt: el hilo que cifra encola una `preguntar.Peticion` y espera.
+    Consecuencia: **sin bucle de Qt no hay diálogo** (bandeja no disponible,
+    `CIFRARPDF_SIN_BANDEJA=1`), y esas carpetas dejan los PDF marcados
+    `SIN-CIFRAR_`; queda dicho en el registro al arrancar.
+13. **El renombrado a `SIN-CIFRAR_` vuelve por el vigilante.** Mover el fichero
+    dentro de la misma carpeta es un evento de watchdog como cualquier otro: si
+    no se ignorara ese prefijo (en `_Manejador._quizas`) se preguntaría la
+    contraseña en bucle sobre el mismo PDF. Mismo motivo por el que el bucle de
+    `inotifywait` del bash los salta.
 
 ## `gui.py` es un fork de la GUI de Debian
 

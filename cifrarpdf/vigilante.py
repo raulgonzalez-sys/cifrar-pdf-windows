@@ -27,10 +27,13 @@ from pathlib import Path
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
-from . import cifrar, config, espera, notificar, proceso, rutas, secreto
+from . import cifrar, config, espera, notificar, preguntar, proceso, rutas, secreto
 
 COMPROBAR_PARADA_MS = 500
 ESPERA_COLA = 0.5
+
+# Contraseñas de lote del modo «preguntar»: en memoria y con caducidad.
+_lote = preguntar.Lote()
 
 
 class _Manejador(FileSystemEventHandler):
@@ -50,6 +53,12 @@ class _Manejador(FileSystemEventHandler):
             return
         camino = Path(os.fsdecode(ruta))
         if camino.suffix.lower() != ".pdf" or cifrar.es_temporal(camino.name):
+            return
+        # Los marcados «SIN-CIFRAR_» se ignoran: ese nombre se lo pusimos
+        # nosotros, y el renombrado cuenta como fichero movido a la carpeta —
+        # volveríamos a preguntar en bucle. Se recuperan en el lote del
+        # próximo PDF que se suelte ahí.
+        if preguntar.es_marcado(camino.name):
             return
         self.cola.put(camino)
 
@@ -75,6 +84,12 @@ def _procesar(ruta: Path, mapa: dict[str, config.Carpeta]) -> None:
             "programa), así que no se ha cifrado.\nVuelve a soltarlo cuando esté listo.",
         )
         return
+    # El modo se lee del disco en el momento de cifrar, no al arrancar: así
+    # cambiarlo desde la ventana surte efecto sin reiniciar el vigilante.
+    actual = config.leer(carpeta.id) or carpeta
+    if actual.pregunta:
+        _procesar_preguntando(ruta, actual)
+        return
     clave = secreto.leer(carpeta.id)
     if not clave:
         notificar.error(
@@ -83,11 +98,96 @@ def _procesar(ruta: Path, mapa: dict[str, config.Carpeta]) -> None:
             f"«{ruta.name}» se ha quedado SIN cifrar.\nAbre «Cifrar PDF» y ponle una.",
         )
         return
+    _cifrar_y_avisar(ruta, clave)
+
+
+def _cifrar_y_avisar(ruta: Path, clave: str) -> bool:
+    """Cifra un PDF y avisa del resultado. False si no se pudo."""
     try:
-        if cifrar.cifrar_en_sitio(ruta, clave):
-            notificar.info("PDF protegido", f"Cifrado correctamente:\n{ruta.name}")
+        if not cifrar.cifrar_en_sitio(ruta, clave):
+            return True
     except cifrar.ErrorCifrado as error:
         notificar.error("Error al cifrar PDF", str(error))
+        return False
+    # Ya protegido: si venía marcado como sin cifrar, recupera su nombre limpio.
+    final = preguntar.limpiar_prefijo(ruta)
+    notificar.info("PDF protegido", f"Cifrado correctamente:\n{final.name}")
+    return True
+
+
+def _procesar_preguntando(ruta: Path, carpeta: config.Carpeta) -> None:
+    """Modo «preguntar cada vez»: la contraseña se pide ahora, al cifrar."""
+    # Guarda imprescindible ANTES de molestar a nadie: un PDF que ya está
+    # cifrado no puede provocar un diálogo.
+    try:
+        if cifrar.ya_cifrado(ruta):
+            rutas.log(f"Ya cifrado, se omite: {ruta}")
+            return
+    except cifrar.ErrorCifrado as error:
+        # Ilegible: no tiene sentido pedir una contraseña para un PDF que
+        # después no se va a poder cifrar igualmente.
+        notificar.error("Error al cifrar PDF", str(error))
+        return
+
+    titulo = f"Cifrar PDF — {carpeta.nombre}"
+
+    # Lote en curso: se reutiliza la contraseña sin volver a preguntar.
+    clave = _lote.vigente(carpeta.id)
+    if clave:
+        _cifrar_y_avisar(ruta, clave)
+        return
+
+    if not preguntar.hay_atendedor():
+        rutas.log("Sin interfaz para preguntar la contraseña: "
+                  f"se marca sin cifrar {ruta.name}")
+        _avisar_sin_cifrar(ruta)
+        return
+
+    # Se mira cuántos hay antes de preguntar: si se soltaron varios de golpe,
+    # ya están todos en el disco y se puede ofrecer una sola contraseña.
+    pendientes = preguntar.pendientes_sin_cifrar(carpeta.ruta)
+
+    clave = preguntar.pedir_clave_confirmada(
+        titulo, f"Contraseña para «{ruta.name}»:")
+    if not clave:
+        preguntar.avisar(
+            titulo,
+            "No se ha introducido ninguna contraseña.\n"
+            "Último intento antes de dejar el PDF sin cifrar.")
+        clave = preguntar.pedir_clave_confirmada(
+            titulo, f"Contraseña para «{ruta.name}» (último intento):")
+    if not clave:
+        _avisar_sin_cifrar(ruta)
+        return
+
+    if len(pendientes) > 1 and preguntar.confirmar(
+            titulo,
+            f"Hay {len(pendientes)} PDF sin cifrar en «{carpeta.nombre}».\n"
+            "¿Usar esta misma contraseña para todos?"):
+        _lote.guardar(carpeta.id, clave)
+        rutas.log(f"Lote de {len(pendientes)} PDF con una sola contraseña en "
+                  f"«{carpeta.nombre}» (reuso {preguntar.REUSO_TTL:.0f} s).")
+        for pendiente in pendientes:
+            if pendiente.is_file():
+                _cifrar_y_avisar(pendiente, clave)
+        return
+
+    _cifrar_y_avisar(ruta, clave)
+
+
+def _avisar_sin_cifrar(ruta: Path) -> None:
+    """Deja constancia, en el nombre y en un aviso, de que NO se ha cifrado."""
+    destino = preguntar.marcar_sin_cifrar(ruta)
+    if destino == ruta:
+        notificar.error(
+            "PDF SIN CIFRAR",
+            f"No se introdujo la contraseña: «{ruta.name}» NO se ha cifrado y "
+            "sigue sin proteger.")
+        return
+    notificar.error(
+        "PDF SIN CIFRAR",
+        f"No se introdujo la contraseña: «{ruta.name}» NO se ha cifrado.\n"
+        f"Sigue sin proteger, renombrado a «{destino.name}».")
 
 
 def _trabajador(cola: queue.Queue[Path], mapa: dict[str, config.Carpeta],
@@ -116,20 +216,32 @@ def _preparar_carpetas() -> dict[str, config.Carpeta]:
                             f"No se pudo abrir la carpeta «{carpeta.nombre}»: {error}")
             continue
         cifrar.limpiar_temporales(carpeta.ruta)
-        if not secreto.tiene_clave(carpeta.id):
+        # En «preguntar» no hay contraseña guardada A PROPÓSITO: avisar de que
+        # falta sería una falsa alarma.
+        if not carpeta.pregunta and not secreto.tiene_clave(carpeta.id):
             notificar.error(
                 "Cifrar PDF — sin contraseña",
                 f"La carpeta «{carpeta.nombre}» no tiene contraseña guardada.\n"
                 "Abre «Cifrar PDF» y ponle una: hasta entonces sus PDF no se cifran.",
             )
         mapa[_clave(carpeta.ruta)] = carpeta
-        rutas.log(f"Vigilando: {carpeta.nombre} → {carpeta.ruta}")
+        rutas.log(f"Vigilando: {carpeta.nombre} → {carpeta.ruta} "
+                  f"(modo: {carpeta.modo})")
     return mapa
 
 
 def _encolar_existentes(cola: queue.Queue[Path], mapa: dict[str, config.Carpeta]) -> None:
-    """Barrido inicial: los PDF que ya estaban dentro también se cifran."""
+    """Barrido inicial: los PDF que ya estaban dentro también se cifran.
+
+    Las carpetas en modo «preguntar» se saltan a propósito: nadie quiere que
+    al iniciar sesión le salten diálogos de contraseña. Lo que quedara dentro
+    se recupera en el lote del próximo PDF que se suelte ahí.
+    """
     for carpeta in mapa.values():
+        if carpeta.pregunta:
+            rutas.log(f"Sin barrido inicial en «{carpeta.nombre}»: "
+                      "no se pregunta hasta que se suelte un PDF.")
+            continue
         try:
             for entrada in sorted(carpeta.ruta.iterdir()):
                 if (entrada.is_file() and entrada.suffix.lower() == ".pdf"
@@ -196,6 +308,7 @@ def _ejecutar() -> int:
         codigo = _esperar_parada()
     finally:
         notificar.registrar_emisor(None)
+        preguntar.registrar_atendedor(None)
         parar.set()
         observador.stop()
         observador.join(2)
@@ -229,7 +342,16 @@ def _esperar_parada() -> int:
 
 
 def _bucle_simple() -> int:
-    """Espera la parada sin interfaz. Los avisos van solo al registro."""
+    """Espera la parada sin interfaz. Los avisos van solo al registro.
+
+    Sin Qt no hay ventana que mostrar, así que tampoco se puede preguntar
+    ninguna contraseña: las carpetas en modo «preguntar» dejarán sus PDF
+    marcados «SIN-CIFRAR_». Queda dicho en el registro para que no parezca que
+    la herramienta los ha perdido.
+    """
+    if any(c.pregunta for c in config.listar()):
+        rutas.log("AVISO: sin interfaz gráfica no se puede preguntar la "
+                  "contraseña; esas carpetas dejarán los PDF sin cifrar.")
     while not proceso.parada_pedida(COMPROBAR_PARADA_MS):
         pass
     return 0
@@ -237,14 +359,29 @@ def _bucle_simple() -> int:
 
 def _bucle_con_bandeja() -> int:
     """Icono en el área de notificación, su menú y los avisos del sistema."""
-    from PyQt6.QtCore import QObject, QTimer, pyqtSignal
+    from PyQt6.QtCore import QObject, Qt, QTimer, pyqtSignal
     from PyQt6.QtGui import QAction, QIcon
-    from PyQt6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
+    from PyQt6.QtWidgets import (
+        QApplication,
+        QDialog,
+        QInputDialog,
+        QLineEdit,
+        QMenu,
+        QMessageBox,
+        QSystemTrayIcon,
+    )
 
     class Puente(QObject):
-        """Pasa los avisos del hilo trabajador al hilo de Qt."""
+        """Pasa al hilo de Qt lo que el hilo trabajador no puede hacer.
+
+        Qt solo construye ventanas en el hilo principal, así que tanto los
+        avisos como los diálogos de contraseña del modo «preguntar» viajan por
+        aquí. La conexión entre hilos es en cola, de modo que el cuerpo de los
+        manejadores se ejecuta ya en el hilo de Qt.
+        """
 
         aviso = pyqtSignal(str, str, bool)
+        peticion = pyqtSignal(object)
 
     aplicacion = QApplication(sys.argv)
     aplicacion.setApplicationName("Cifrar PDF")
@@ -265,7 +402,7 @@ def _bucle_con_bandeja() -> int:
     accion_registro = QAction("Ver registro", menu)
     accion_registro.triggered.connect(_abrir_registro)
     accion_salir = QAction("Detener el vigilante", menu)
-    accion_salir.triggered.connect(aplicacion.quit)
+    accion_salir.triggered.connect(lambda: salir())
     menu.addAction(accion_gestion)
     menu.addAction(accion_registro)
     menu.addSeparator()
@@ -287,10 +424,76 @@ def _bucle_con_bandeja() -> int:
         lambda titulo, texto, es_error: puente.aviso.emit(titulo, texto, es_error)
     )
 
+    # Diálogos abiertos ahora mismo. Hacen falta porque «exec()» abre un bucle
+    # de eventos ANIDADO: «quit()» solo termina el principal, así que con un
+    # diálogo de contraseña delante «Detener el vigilante» no cerraría nada
+    # hasta que alguien lo contestara (o pasaran sus 3 minutos).
+    abiertos = []
+
+    def salir() -> None:
+        for dialogo in list(abiertos):
+            dialogo.reject()
+        aplicacion.quit()
+
+    def _mostrar(dialogo):  # noqa: ANN001, ANN202 — QDialog
+        abiertos.append(dialogo)
+        try:
+            return dialogo.exec()
+        finally:
+            abiertos.remove(dialogo)
+
+    def atender(peticion) -> None:  # noqa: ANN001 — preguntar.Peticion
+        """Muestra el diálogo que pide el hilo trabajador y guarda su respuesta.
+
+        Los diálogos se cierran solos pasado su plazo: el vigilante es un
+        proceso de fondo y un PDF soltado y olvidado no puede dejar la cola
+        parada para siempre. Van «siempre encima» porque quien suelta el PDF
+        está mirando otra ventana (el explorador, el visor) y un diálogo de una
+        aplicación de la bandeja se queda detrás con facilidad.
+        """
+        try:
+            if peticion.tipo == "pedir":
+                dialogo = QInputDialog()
+                dialogo.setWindowTitle(peticion.titulo)
+                dialogo.setLabelText(peticion.texto)
+                dialogo.setTextEchoMode(QLineEdit.EchoMode.Password)
+                dialogo.setWindowIcon(icono)
+                dialogo.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+                QTimer.singleShot(
+                    int(preguntar.ESPERA_PREGUNTA * 1000), dialogo.reject)
+                aceptado = _mostrar(dialogo) == QDialog.DialogCode.Accepted
+                peticion.resultado = dialogo.textValue() if aceptado else None
+            elif peticion.tipo == "confirmar":
+                caja = QMessageBox(QMessageBox.Icon.Question, peticion.titulo,
+                                   peticion.texto,
+                                   QMessageBox.StandardButton.Yes
+                                   | QMessageBox.StandardButton.No)
+                caja.setWindowIcon(icono)
+                caja.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+                QTimer.singleShot(120_000, caja.reject)
+                peticion.resultado = (
+                    _mostrar(caja) == QMessageBox.StandardButton.Yes)
+            else:
+                caja = QMessageBox(QMessageBox.Icon.Warning, peticion.titulo,
+                                   peticion.texto,
+                                   QMessageBox.StandardButton.Ok)
+                caja.setWindowIcon(icono)
+                caja.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+                QTimer.singleShot(60_000, caja.reject)
+                _mostrar(caja)
+                peticion.resultado = True
+        finally:
+            # Pase lo que pase, el hilo trabajador tiene que despertar: si no,
+            # se quedaría esperando hasta agotar el plazo por nada.
+            peticion.atendida.set()
+
+    puente.peticion.connect(atender)
+    preguntar.registrar_atendedor(puente.peticion.emit)
+
     temporizador = QTimer()
     temporizador.setInterval(COMPROBAR_PARADA_MS)
     temporizador.timeout.connect(
-        lambda: aplicacion.quit() if proceso.parada_pedida(0) else None
+        lambda: salir() if proceso.parada_pedida(0) else None
     )
     temporizador.start()
     return aplicacion.exec()

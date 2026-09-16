@@ -36,7 +36,7 @@ allí (§9).
 | Fase | Estado |
 |---|---|
 | F0 · Andamiaje | **Hecha** — repo creada, `pyproject.toml` con versiones fijadas, CLAUDE.md propio, CI de `windows-latest` |
-| F1 · Backend y contrato | **Hecha** — los 8 subcomandos `--gui-*` más `--parar`; 77 tests en verde |
+| F1 · Backend y contrato | **Hecha** — los 8 subcomandos `--gui-*` más `--parar`, con el modo de contraseña por carpeta; tests en verde |
 | F2 · Vigilante | **Hecha** — watchdog + hilo cifrador + icono en el área de notificación + mútex/evento + autoarranque |
 | F3 · GUI | **Hecha** — la ventana funciona en los dos sistemas con las mismas ramas de plataforma, pero como **fork**: la copia de Debian se dejó intacta (§9) |
 | F4 · Empaquetado | **Hecha** — `.spec` de PyInstaller (dos ejecutables), recurso de versión e instalador de Inno Setup |
@@ -46,12 +46,14 @@ allí (§9).
 
 **Lo que sí está verificado**, y cómo:
 
-- **77 tests** pasan (config, nombres imposibles de Windows, cifrado real con
-  pikepdf, no recifrar, espera de fichero, contrato completo, secretos,
-  autoarranque). Corren en 2 s.
-- **Paridad de contrato con el bash, comprobada ejecutando los dos**: las nueve
-  operaciones comparadas devuelven exactamente lo mismo, **hasta el texto de los
-  errores** (`herramientas/comparar_con_bash.sh` lo repite cuando se quiera).
+- **Los tests** pasan (config y modo de contraseña, nombres imposibles de
+  Windows, cifrado real con pikepdf, no recifrar, espera de fichero, contrato
+  completo, secretos, autoarranque, y el modo «preguntar» de punta a punta con
+  los diálogos simulados). Corren en un par de segundos.
+- **Paridad de contrato con el bash, comprobada ejecutando los dos**: las doce
+  operaciones comparadas —las tres últimas, del modo de contraseña— devuelven
+  exactamente lo mismo, **hasta el texto de los errores**
+  (`herramientas/comparar_con_bash.sh` lo repite cuando se quiera).
 - **La GUI arranca en Linux contra el backend bash real** y lista bien las
   carpetas, así que las ramas de plataforma no rompen el camino de KDE si algún
   día se decide unificar. (Sin iconos en la comprobación porque el contenedor no
@@ -310,12 +312,12 @@ que la Guía del puesto, y regla de sincronía (§9) escrita en los CLAUDE.md de
 ## 7. Contrato `--gui-*` (a respetar literalmente)
 
 ```
---gui-listar            → TSV por carpeta: id \t nombre \t carpeta \t existe(0|1) \t tiene_clave(0|1)
+--gui-listar            → TSV por carpeta: id \t nombre \t carpeta \t existe(0|1) \t tiene_clave(0|1) \t modo(fija|preguntar)
 --gui-estado            → "1" si el vigilante está activo, "0" si no
 --gui-asegurar          → arranca el vigilante si hace falta
---gui-add NOMBRE        → contraseña por stdin; "OK <id>" | "ERR …"
+--gui-add NOMBRE [--modo fija|preguntar]   → contraseña por stdin (solo en fija); "OK <id>" | "ERR …"
 --gui-rename ID NUEVO   → renombra de verdad la carpeta del Escritorio; "OK" | "ERR …"
---gui-set-pass ID       → contraseña por stdin; "OK" | "ERR …"
+--gui-set-pass ID [--modo fija|preguntar]  → contraseña por stdin (solo en fija); "OK" | "ERR …"
 --gui-remove ID [--borrar-carpeta]
 --gui-remove-all [--borrar-carpetas]
 ```
@@ -324,6 +326,12 @@ Reglas que ya asume la GUI y no se pueden cambiar: el nombre no puede contener
 `/` (en Windows, ampliar a `\ : * ? " < > |` y a los nombres reservados tipo
 `CON`, `NUL`), la contraseña **siempre** por *stdin*, y los mensajes de error
 empiezan por `ERR ` porque la GUI recorta ese prefijo.
+
+El 6º campo (`modo`) y el `--modo` los añadió el modo «preguntar la contraseña
+cada vez». En ese modo **no se lee *stdin*** —no hay contraseña que guardar— y
+`--gui-set-pass --modo preguntar` borra la que hubiera guardada. Un `.conf` o
+un JSON sin ese campo se lee como `fija`, que es el comportamiento anterior; la
+GUI también hace lo propio si el 6º campo faltara.
 
 ---
 

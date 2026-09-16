@@ -28,6 +28,16 @@ Al tocar la interfaz, conviene dejar dicho en el mensaje del commit si el cambio
 también debería ir a la otra copia, para que quien lo lea después no tenga que
 adivinarlo.
 
+## Lo que está en la copia de Debian y aquí NO
+
+`modo_pedir_pass()` y el arranque con `--pedir-pass`. Allí sirven para que el
+vigilante bash pueda pedir la contraseña cuando no hay kdialog instalado: lanza
+la GUI como proceso hijo y lee la clave de su salida estándar. Aquí ese camino
+no existe a propósito — en un `.exe` sin consola la salida estándar no llega a
+ninguna parte, así que el vigilante muestra el diálogo **él mismo**, en su
+propio hilo de Qt (ver `cifrarpdf/preguntar.py`). Añadir `--pedir-pass` a
+`gui.py` sería código que nadie llama.
+
 ## Qué NO se puede comprobar automáticamente
 
 Nada de esto lo ve el CI: no hay KDE ni sesión de Windows con pantalla. Una

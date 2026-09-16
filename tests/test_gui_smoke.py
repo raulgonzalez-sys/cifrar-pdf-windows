@@ -49,3 +49,34 @@ def test_el_comando_del_backend_apunta_a_algo(aplicacion):
     import gui
     orden = gui.comando_backend()
     assert orden and isinstance(orden, list)
+
+
+def test_el_dialogo_oculta_la_contrasena_al_preguntar(aplicacion):
+    """El selector de modo es lo que decide si hay campos de contraseña.
+
+    En «preguntar» no hay nada que escribir aquí, así que los campos se
+    esconden y Guardar tiene que quedar habilitado igualmente.
+    """
+    from PyQt6.QtWidgets import QDialogButtonBox
+
+    import gui
+    dlg = gui.DialogoContrasena(pedir_nombre=True, nombre_def="Informes")
+    aceptar = dlg.botones.button(QDialogButtonBox.StandardButton.Ok)
+
+    assert dlg.modo() == "fija"
+    assert dlg.caja_pass.isVisibleTo(dlg)
+    assert not aceptar.isEnabled(), "en fija hace falta escribir la contraseña"
+
+    dlg.radio_preguntar.setChecked(True)
+    assert dlg.modo() == "preguntar"
+    assert not dlg.caja_pass.isVisibleTo(dlg)
+    assert aceptar.isEnabled()
+    assert dlg.contrasena() == "", "no se manda contraseña en modo preguntar"
+    dlg.close()
+
+
+def test_el_dialogo_arranca_en_el_modo_de_la_carpeta(aplicacion):
+    import gui
+    dlg = gui.DialogoContrasena(pedir_nombre=False, modo_actual="preguntar")
+    assert dlg.radio_preguntar.isChecked()
+    dlg.close()

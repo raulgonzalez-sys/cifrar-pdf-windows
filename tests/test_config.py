@@ -78,3 +78,30 @@ def test_hay_carpetas_y_borrar():
     assert config.hay_carpetas()
     config.borrar("informes")
     assert not config.hay_carpetas()
+
+
+def test_modo_por_defecto_y_normalizacion():
+    assert config.normalizar_modo("preguntar") == "preguntar"
+    assert config.normalizar_modo("fija") == "fija"
+    for raro in (None, "", "PREGUNTAR", "otra cosa"):
+        assert config.normalizar_modo(raro) == "fija"
+
+
+def test_configuracion_sin_modo_se_lee_como_fija():
+    """Una carpeta escrita antes de que existieran los dos modos.
+
+    No hay migración: se lee tal cual, y «fija» es justo lo que hacía.
+    """
+    (rutas.carpetas_dir() / "vieja.json").write_text(
+        '{"nombre": "Vieja", "carpeta": "/tmp/Vieja"}', encoding="utf-8")
+    carpeta = config.leer("vieja")
+    assert carpeta.modo == "fija"
+    assert not carpeta.pregunta
+
+
+def test_escribir_y_leer_el_modo():
+    ruta = rutas.escritorio() / "Informes"
+    config.escribir("informes", "Informes", ruta, "preguntar")
+    assert config.leer("informes").pregunta
+    config.escribir("informes", "Informes", ruta, "fija")
+    assert not config.leer("informes").pregunta

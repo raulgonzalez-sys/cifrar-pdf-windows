@@ -1,8 +1,9 @@
 """Carpetas de cifrado configuradas: alta, baja, renombrado y lectura.
 
-Una carpeta = un fichero «carpetas.d/<id>.json» con su nombre visible y su
-ruta. El formato es JSON y no el «.conf + source» del bash: aquí no hay shell
-que aprovechar, y JSON evita tener que reproducir el escapado de «printf %q».
+Una carpeta = un fichero «carpetas.d/<id>.json» con su nombre visible, su ruta
+y su modo de contraseña. El formato es JSON y no el «.conf + source» del bash:
+aquí no hay shell que aprovechar, y JSON evita tener que reproducir el escapado
+de «printf %q».
 """
 
 from __future__ import annotations
@@ -28,16 +29,39 @@ RESERVADOS = {
 
 MAX_NOMBRE = 100
 
+# Modo de contraseña de una carpeta (mismos dos valores que el MODO del .conf
+# del backend Debian):
+#
+#   fija      — se guarda una contraseña y se aplica sola a cada PDF.
+#   preguntar — no se guarda nada; la pide el vigilante al cifrar.
+MODO_FIJA = "fija"
+MODO_PREGUNTAR = "preguntar"
+MODOS = (MODO_FIJA, MODO_PREGUNTAR)
+
+
+def normalizar_modo(modo: str | None) -> str:
+    """Solo hay dos modos; cualquier otra cosa (o nada) es «fija».
+
+    Una configuración escrita antes de que existieran los dos modos no lleva el
+    campo, y «fija» es justo el comportamiento que tenía.
+    """
+    return modo if modo in MODOS else MODO_FIJA
+
 
 @dataclass(frozen=True)
 class Carpeta:
     id: str
     nombre: str
     ruta: Path
+    modo: str = MODO_FIJA
 
     @property
     def existe(self) -> bool:
         return self.ruta.is_dir()
+
+    @property
+    def pregunta(self) -> bool:
+        return self.modo == MODO_PREGUNTAR
 
 
 def validar_nombre(nombre: str) -> str | None:
@@ -99,19 +123,22 @@ def leer(cid: str) -> Carpeta | None:
         return None
     if not nombre or not carpeta:
         return None
-    return Carpeta(id=cid, nombre=nombre, ruta=Path(carpeta))
+    return Carpeta(id=cid, nombre=nombre, ruta=Path(carpeta),
+                   modo=normalizar_modo(datos.get("modo")))
 
 
 def listar() -> list[Carpeta]:
     return [c for c in (leer(cid) for cid in listar_ids()) if c is not None]
 
 
-def escribir(cid: str, nombre: str, carpeta: Path) -> None:
+def escribir(cid: str, nombre: str, carpeta: Path,
+             modo: str = MODO_FIJA) -> None:
     """Escribe la configuración de una carpeta (atómico: temporal + replace)."""
     destino = _fichero(cid)
     temporal = destino.with_suffix(".json.tmp")
     with open(temporal, "w", encoding="utf-8") as fh:
-        json.dump({"nombre": nombre, "carpeta": str(carpeta)}, fh,
+        json.dump({"nombre": nombre, "carpeta": str(carpeta),
+                   "modo": normalizar_modo(modo)}, fh,
                   ensure_ascii=False, indent=2)
     os.replace(temporal, destino)
 

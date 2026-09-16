@@ -29,16 +29,19 @@ Uso:
   CifrarPDF --ayuda              Muestra esta ayuda.
 
 Subcomandos para la interfaz gráfica (no interactivos, contraseña por stdin):
-  --gui-listar                   id, nombre, ruta, ¿existe?, ¿tiene contraseña?
+  --gui-listar                   id, nombre, ruta, ¿existe?, ¿tiene contraseña?, modo
   --gui-estado                   1 si el vigilante está activo, 0 si no
   --gui-asegurar                 Arranca el vigilante si hace falta
-  --gui-add NOMBRE               Crea la carpeta en el Escritorio
+  --gui-add NOMBRE [--modo fija|preguntar]   Crea la carpeta en el Escritorio
   --gui-rename ID NUEVO          Renombra la carpeta (también en el disco)
-  --gui-set-pass ID              Cambia la contraseña
+  --gui-set-pass ID [--modo fija|preguntar]  Cambia la contraseña o el modo
   --gui-remove ID [--borrar-carpeta]
   --gui-remove-all [--borrar-carpetas]
 
-La contraseña se guarda en el Administrador de credenciales de Windows.
+Cada carpeta tiene su modo de contraseña. En «fija», la contraseña se guarda
+en el Administrador de credenciales de Windows y se aplica sola. En
+«preguntar» no se guarda nada y la pide el vigilante al cifrar (no lee stdin).
+
 Un PDF ya cifrado no se vuelve a cifrar. Nada de esto se puede deshacer sin la
 contraseña: si se pierde, el PDF no se recupera.
 """
@@ -65,13 +68,38 @@ def _err(mensaje: str) -> int:
     return 1
 
 
+def _partir_modo(argumentos: tuple[str, ...],
+                 por_defecto: str | None = None) -> tuple[list[str], str | None]:
+    """Separa «--modo VALOR» del resto de argumentos.
+
+    Se admite en cualquier posición, igual que en el bash, para que la GUI no
+    tenga que preocuparse del orden.
+    """
+    sueltos: list[str] = []
+    modo = por_defecto
+    resto = list(argumentos)
+    while resto:
+        actual = resto.pop(0)
+        if actual == "--modo":
+            modo = config.normalizar_modo(resto.pop(0) if resto else "")
+        else:
+            sueltos.append(actual)
+    return sueltos, modo
+
+
 # --- Subcomandos de la GUI --------------------------------------------------
 
 def gui_listar() -> int:
     for carpeta in config.listar():
         existe = 1 if carpeta.existe else 0
-        clave = 1 if secreto.tiene_clave(carpeta.id) else 0
-        print(f"{carpeta.id}\t{carpeta.nombre}\t{carpeta.ruta}\t{existe}\t{clave}")
+        # En modo «preguntar» no hay contraseña guardada por diseño, así que no
+        # se consulta el Administrador de credenciales: la GUI tampoco muestra
+        # ahí el aviso de «sin contraseña».
+        clave = 0
+        if not carpeta.pregunta and secreto.tiene_clave(carpeta.id):
+            clave = 1
+        print(f"{carpeta.id}\t{carpeta.nombre}\t{carpeta.ruta}\t{existe}"
+              f"\t{clave}\t{carpeta.modo}")
     return 0
 
 
@@ -85,14 +113,21 @@ def gui_asegurar() -> int:
     return 0
 
 
-def gui_add(nombre: str = "") -> int:
+def gui_add(*argumentos: str) -> int:
+    sueltos, modo = _partir_modo(argumentos, config.MODO_FIJA)
+    nombre = sueltos[0] if sueltos else ""
     problema = config.validar_nombre(nombre)
     if problema:
         return _err(problema)
-    clave = _leer_clave()
-    problema = secreto.validar_clave(clave)
-    if problema:
-        return _err(f"Contraseña inválida: {problema}")
+
+    # En «preguntar» no hay contraseña que guardar, así que no se lee stdin: la
+    # GUI no manda nada y esperar aquí colgaría la llamada.
+    clave = ""
+    if modo == config.MODO_FIJA:
+        clave = _leer_clave()
+        problema = secreto.validar_clave(clave)
+        if problema:
+            return _err(f"Contraseña inválida: {problema}")
 
     carpeta = rutas.escritorio() / nombre
     if config.ya_configurada(carpeta):
@@ -103,11 +138,11 @@ def gui_add(nombre: str = "") -> int:
         return _err(f"No se pudo crear la carpeta: {carpeta} ({error})")
 
     cid = config.nuevo_id(nombre)
-    config.escribir(cid, nombre, carpeta)
-    if not secreto.guardar(cid, clave):
+    config.escribir(cid, nombre, carpeta, modo)
+    if modo == config.MODO_FIJA and not secreto.guardar(cid, clave):
         config.borrar(cid)
         return _err("No se pudo guardar la contraseña. La carpeta no se ha añadido.")
-    rutas.log(f"Carpeta añadida: {nombre} → {carpeta}")
+    rutas.log(f"Carpeta añadida: {nombre} → {carpeta} (modo: {modo})")
     proceso.refrescar()
     print(f"OK {cid}")
     return 0
@@ -135,24 +170,43 @@ def gui_rename(cid: str = "", nuevo: str = "") -> int:
     except OSError as error:
         return _err(f"No se pudo renombrar la carpeta a: {destino} ({error})")
 
-    config.escribir(cid, nuevo, destino)
+    config.escribir(cid, nuevo, destino, carpeta.modo)
     rutas.log(f"Carpeta renombrada: {carpeta.nombre} → {nuevo} ({destino})")
     proceso.refrescar()
     print("OK")
     return 0
 
 
-def gui_set_pass(cid: str = "") -> int:
+def gui_set_pass(*argumentos: str) -> int:
+    sueltos, modo = _partir_modo(argumentos)
+    cid = sueltos[0] if sueltos else ""
     carpeta = config.leer(cid)
     if carpeta is None:
         return _err("Carpeta no encontrada.")
+    if modo is None:
+        modo = carpeta.modo
+
+    # Pasar a «preguntar» no es solo cambiar el modo: hay que BORRAR lo que
+    # hubiera guardado, o quedaría una contraseña en el Administrador de
+    # credenciales que ya nadie usa. Y se refresca el vigilante en los dos
+    # casos, porque al arrancar decide por modo qué hace con cada carpeta.
+    if modo == config.MODO_PREGUNTAR:
+        config.escribir(cid, carpeta.nombre, carpeta.ruta, modo)
+        secreto.borrar(cid)
+        rutas.log(f"Modo «preguntar cada vez» activado: {carpeta.nombre}")
+        proceso.refrescar()
+        print("OK")
+        return 0
+
     clave = _leer_clave()
     problema = secreto.validar_clave(clave)
     if problema:
         return _err(f"Contraseña inválida: {problema}")
     if not secreto.guardar(cid, clave):
         return _err("No se pudo guardar la contraseña.")
+    config.escribir(cid, carpeta.nombre, carpeta.ruta, config.MODO_FIJA)
     rutas.log(f"Contraseña actualizada: {carpeta.nombre}")
+    proceso.refrescar()
     print("OK")
     return 0
 
