@@ -17,10 +17,10 @@ Las decisiones del porte y por qué son así están en **`PLAN.md`**.
 ## Para quien lo usa
 
 1. Abre **Cifrar PDF** en el menú Inicio.
-2. **Añadir carpeta**: le pones un nombre y una contraseña. Se crea en tu
-   Escritorio.
-3. A partir de ahí, **todo PDF que sueltes en esa carpeta se cifra solo**, con la
-   contraseña de esa carpeta. Sale un aviso cuando está hecho.
+2. **Añadir carpeta**: le pones un nombre y eliges cómo quieres la contraseña
+   (ver abajo). Se crea en tu Escritorio.
+3. A partir de ahí, **todo PDF que sueltes en esa carpeta se cifra solo**. Sale
+   un aviso cuando está hecho.
 
 Tres cosas que conviene tener claras:
 
@@ -30,6 +30,30 @@ Tres cosas que conviene tener claras:
   cuenta de Windows, y sin ella el PDF no se abre. Si se pierde, se pierde.
 - **Un PDF ya cifrado no se vuelve a cifrar**, así que puedes soltar lo que sea
   sin miedo a cifrarlo dos veces.
+
+Cada carpeta de la lista lleva una marca que dice cómo está: «✓ Lista»,
+«🔑 Pregunta cada vez», «✕ Sin contraseña» o «⚠ Carpeta no encontrada». Se puede
+manejar todo sin ratón (Tab recorre la barra, la tecla Menú abre las opciones de
+la carpeta seleccionada) y cada atajo aparece en su propio tooltip.
+
+### Dos formas de poner la contraseña
+
+Al crear una carpeta —y siempre que pulses **Contraseña**— eliges una de las dos:
+
+- **Usar siempre esta contraseña.** Se guarda una vez en el Administrador de
+  credenciales de Windows y se aplica sola a cada PDF que sueltes. Es lo de
+  siempre y lo más cómodo para una carpeta de uso diario.
+- **Preguntar cada vez que suelte un PDF.** No se guarda ninguna contraseña en
+  el equipo: te la pide en el momento de cifrar, dos veces para que no se cuele
+  una errata. Si sueltas varios PDF de golpe, te pregunta **una sola vez** y te
+  ofrece usar esa contraseña para todos. En la lista, esas carpetas llevan la
+  marca «🔑 Pregunta cada vez».
+
+Con «preguntar cada vez», si cierras el diálogo sin escribir nada se te da un
+último intento y, si tampoco, **el PDF se queda sin cifrar** y se renombra a
+`SIN-CIFRAR_<nombre>.pdf` para que lo veas. No se pierde: la próxima vez que
+sueltes un PDF en esa carpeta entra en el lote y recupera su nombre al cifrarse.
+Al iniciar sesión no se pregunta nada a propósito.
 
 Si el PDF está **abierto en un visor** cuando lo sueltas, no se puede sustituir
 por la versión protegida: la herramienta espera unos segundos y, si sigue
@@ -86,8 +110,9 @@ antes de desinstalar se usa **«Quitar todas las carpetas»** en la ventana.
 
 | Síntoma | Qué mirar |
 |---|---|
-| Los PDF no se cifran | ¿Está el vigilante en marcha? En la ventana, el punto de la esquina inferior derecha: verde = activo. También el icono junto al reloj |
-| «No tiene contraseña guardada» | La contraseña se borró del Administrador de credenciales (perfil nuevo, cuenta distinta). En la ventana: *Cambiar contraseña* |
+| Los PDF no se cifran | ¿Está el vigilante en marcha? La ventana lo dice abajo a la derecha («✓ Vigilante activo» / «✕ Vigilante detenido») y, si está parado habiendo carpetas, saca además una banda de aviso. También el icono junto al reloj |
+| «✕ Sin contraseña» | La contraseña se borró del Administrador de credenciales (perfil nuevo, cuenta distinta). En la ventana: *Contraseña*. Ojo: en una carpeta que pregunta cada vez **no** sale este aviso, sale «🔑 Pregunta cada vez» |
+| Aparecen ficheros `SIN-CIFRAR_…` | Una carpeta que pregunta cada vez y nadie escribió la contraseña. Ese PDF **sigue sin proteger**: suelta otro PDF en la carpeta y entrará en el mismo lote |
 | Nada aparece en el registro | *Ver registro* en la ventana, o `%LOCALAPPDATA%\FISAT\CifrarPDF\cifrar-pdf.log` |
 | El antivirus bloquea el .exe | Falso positivo típico de los ejecutables empaquetados con PyInstaller. Excluir `C:\Program Files\FISAT\CifrarPDF` |
 | El PDF sigue sin cifrar tras soltarlo | Suele estar abierto en un visor. Ciérralo y vuelve a soltarlo |
@@ -101,7 +126,7 @@ pip install -e ".[dev]"
 
 python -m cifrarpdf --ayuda        # backend
 python gui.py                      # ventana
-pytest -q                          # tests (77, corren en segundos)
+pytest -q                          # tests (corren en segundos)
 ruff check .                       # lint
 
 pyinstaller empaquetar\CifrarPDF.spec --noconfirm    # → dist\CifrarPDF\
@@ -134,6 +159,7 @@ asoma ninguna ventana negra).
 | `cifrarpdf/cifrar.py` | Cifrado con pikepdf (AES-256, `R=6`), verificación y reemplazo con reintentos |
 | `cifrarpdf/espera.py` | Esperar a que el PDF esté completo (bloqueo + tamaño estable) |
 | `cifrarpdf/vigilante.py` | watchdog + hilo cifrador + icono en la bandeja |
+| `cifrarpdf/preguntar.py` | Modo «preguntar cada vez»: diálogo, lote en memoria y marcado `SIN-CIFRAR_` |
 | `cifrarpdf/proceso.py` | Instancia única (mútex) y parada ordenada (evento con nombre) |
 | `cifrarpdf/autostart.py` | Autoarranque por usuario en `HKCU\...\Run` |
 | `cifrarpdf/cli.py` | El contrato `--gui-*` — **idéntico al del backend bash de Debian** |

@@ -28,7 +28,9 @@ técnico. Los mensajes se escriben para ellas.
   un comentario por qué**.
 - **El contrato `--gui-*` es intocable** sin cambiar también el bash. Su forma
   está en `cifrarpdf/cli.py` y en el README; los tests de `tests/test_cli.py`
-  existen para que no se rompa por descuido.
+  existen para que no se rompa por descuido. `herramientas/comparar_con_bash.sh`
+  lo comprueba contra el bash de verdad (en Linux, con un checkout de
+  debian13-fisat al lado).
 - **La contraseña nunca en `argv`.** Siempre por entrada estándar. En un
   argumento sería visible en la lista de procesos.
 - **Nada de migraciones.** Igual que en debian13-fisat: instalaciones nuevas. No
@@ -86,6 +88,47 @@ técnico. Los mensajes se escriben para ellas.
 11. **`"$env:ProgramFiles(x86)"` no se expande en PowerShell**: parsea
     `$env:ProgramFiles` y deja `(x86)` como texto. Va con el nombre entre llaves,
     `${env:ProgramFiles(x86)}`. Rompió el paso del instalador en el CI.
+12. **El diálogo del modo «preguntar» no puede ser un proceso aparte.** El bash
+    de Debian lanza kdialog (o la propia GUI con `--pedir-pass`) y recoge la
+    contraseña por la salida estándar del hijo. Aquí eso no vale por la trampa 1
+    —en un `.exe` sin consola el `print` se descarta— y además Qt solo construye
+    ventanas en el hilo principal. Por eso lo muestra **el propio vigilante** en
+    su hilo de Qt: el hilo que cifra encola una `preguntar.Peticion` y espera.
+    Consecuencia: **sin bucle de Qt no hay diálogo** (bandeja no disponible,
+    `CIFRARPDF_SIN_BANDEJA=1`), y esas carpetas dejan los PDF marcados
+    `SIN-CIFRAR_`; queda dicho en el registro al arrancar.
+13. **El renombrado a `SIN-CIFRAR_` vuelve por el vigilante.** Mover el fichero
+    dentro de la misma carpeta es un evento de watchdog como cualquier otro: si
+    no se ignorara ese prefijo (en `_Manejador._quizas`) se preguntaría la
+    contraseña en bucle sobre el mismo PDF. Mismo motivo por el que el bucle de
+    `inotifywait` del bash los salta.
+14. **Tres mentiras de `QIcon` que dejan huecos.** `QIcon.fromTheme()` puede
+    devolver un icono **no nulo pero vacío**, así que preguntar con `isNull()`
+    no dispara la cadena de alternativas: se pregunta con
+    `QIcon.hasThemeIcon()`. `QIcon(ruta)` **nunca** es nulo aunque el fichero
+    no se pueda decodificar, porque Qt lo carga en diferido: quien decide es
+    el `QPixmap`. Y `QIcon.pixmap()` **no amplía** por encima del tamaño
+    natural del fichero y devuelve el pixmap con `devicePixelRatio` 1 — al
+    125-150 % de escalado, que es lo normal en Windows, sale borroso. Todo
+    icono pasa por `pixmap_nitido()`.
+15. **`palette(mid)` no es un color de texto.** Es el rol de sombreado de
+    marcos, derivado del fondo: daba unos 2:1 de contraste en la ruta y el
+    contador de PDF. Y `lightness() < 128` para decidir si el tema es oscuro
+    se equivoca con grises medios. Todo el color va por la capa única de la
+    cabecera de `gui.py` (`tema_oscuro()` por luminancias, `semantico()`,
+    `escala_fuente()`), y `Ventana.changeEvent` la recalcula al cambiar el
+    tema del sistema: si no, los chips se quedan con los colores del tema
+    anterior hasta cerrar y reabrir la ventana.
+16. **Nada de píxeles fijos para la ventana.** Con 760×520 fijos la barra de
+    herramientas no cabía y Qt escondía acciones tras el botón de
+    desbordamiento; y al 150 % en un 1366×768 una ventana «generosa» sale más
+    alta que el escritorio. `_dimensionar()` calcula en unidades de fuente y
+    acota a la pantalla disponible. Por lo mismo, los tamaños de letra son
+    relativos: quien sube la fuente del sistema por vista cansada hacía crecer
+    todo menos justo los textos que peor se leían.
+17. **`QToolBar` crea sus botones con `NoFocus`.** La barra entera quedaba
+    fuera del recorrido del Tab, así que sin ratón no se llegaba a ninguna
+    acción. Se les pone `TabFocus` a mano al construirla.
 
 ## `gui.py` es un fork de la GUI de Debian
 

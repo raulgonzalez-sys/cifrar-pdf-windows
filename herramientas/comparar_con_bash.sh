@@ -26,12 +26,18 @@ BASH_BIN="$DEBIAN_REPO/archivos/fisat-cifrar-pdf"
 TRABAJO="$(mktemp -d)"
 trap 'rm -rf "$TRABAJO"' EXIT
 
+# La salida va a un fichero y se lee después, NO por «$(...)» directamente.
+# Un alta arranca el vigilante, que hereda la salida estándar y vive para
+# siempre: con una sustitución de órdenes esto se quedaría esperando a que ese
+# hijo cierre la tubería, es decir, colgado. Al escribir en un fichero, el
+# vigilante puede seguir vivo sin bloquear a nadie.
 correr_bash() {
     local clave="$1"; shift
     rm -rf "$TRABAJO/bash"
     mkdir -p "$TRABAJO/bash/.config" "$TRABAJO/bash/Escritorio"
     printf '%s' "$clave" | HOME="$TRABAJO/bash" XDG_CONFIG_HOME="$TRABAJO/bash/.config" \
-        timeout 20 bash "$BASH_BIN" "$@" 2>/dev/null
+        timeout 20 bash "$BASH_BIN" "$@" >"$TRABAJO/salida" 2>/dev/null
+    cat "$TRABAJO/salida"
 }
 
 correr_python() {
@@ -42,7 +48,8 @@ correr_python() {
         CIFRARPDF_CONFIG_DIR="$TRABAJO/py/cfg" \
         CIFRARPDF_DATOS_DIR="$TRABAJO/py/datos" \
         CIFRARPDF_ESCRITORIO="$TRABAJO/py/Escritorio" \
-        timeout 20 "$PYTHON" -m cifrarpdf "$@" 2>/dev/null )
+        timeout 20 "$PYTHON" -m cifrarpdf "$@" ) >"$TRABAJO/salida" 2>/dev/null
+    cat "$TRABAJO/salida"
 }
 
 fallos=0
@@ -69,6 +76,11 @@ comparar "clave de inexistente"   "contraseña-larga" --gui-set-pass "fantasma"
 comparar "quitar inexistente"     ""                 --gui-remove "fantasma"
 comparar "quitar todas en vacío"  ""                 --gui-remove-all
 comparar "listado vacío"          ""                 --gui-listar
+# Modo de contraseña: «preguntar» no lee stdin, así que se pasa vacío a
+# propósito — si alguna de las dos implementaciones lo leyera, se colgaría.
+comparar "alta preguntando"       ""                 --gui-add "Informes" --modo preguntar
+comparar "alta con modo inválido" "contraseña-larga" --gui-add "Informes" --modo inventado
+comparar "modo de inexistente"    ""                 --gui-set-pass "fantasma" --modo preguntar
 
 echo
 if [ "$fallos" -eq 0 ]; then

@@ -63,7 +63,7 @@ def test_add_rechaza_carpeta_repetida(capsys, monkeypatch, sin_keyring):
     assert "Ya hay una carpeta de cifrado" in capsys.readouterr().out
 
 
-def test_listar_da_cinco_campos(capsys, monkeypatch, escritorio, sin_keyring):
+def test_listar_da_seis_campos(capsys, monkeypatch, escritorio, sin_keyring):
     entrada(monkeypatch, "contraseña-larga")
     cli.main(["--gui-add", "Informes"])
     capsys.readouterr()
@@ -71,12 +71,13 @@ def test_listar_da_cinco_campos(capsys, monkeypatch, escritorio, sin_keyring):
     assert cli.main(["--gui-listar"]) == 0
     linea = capsys.readouterr().out.strip()
     campos = linea.split("\t")
-    assert len(campos) == 5
+    assert len(campos) == 6
     assert campos[0] == "informes"
     assert campos[1] == "Informes"
     assert campos[2] == str(escritorio / "Informes")
     assert campos[3] == "1"  # la carpeta existe
     assert campos[4] == "1"  # tiene contraseña
+    assert campos[5] == "fija"  # modo de contraseña
 
 
 def test_listar_marca_carpeta_desaparecida(capsys, monkeypatch, escritorio, sin_keyring):
@@ -201,3 +202,68 @@ def test_parar(capsys, monkeypatch):
     assert cli.main(["--parar"]) == 0
     assert capsys.readouterr().out.strip() == "OK"
     assert llamado, "el desinstalador necesita que esto pare el vigilante de verdad"
+
+
+# --- Modo de contraseña por carpeta -----------------------------------------
+
+def test_add_preguntar_no_guarda_contrasena(capsys, escritorio, sin_keyring):
+    # Sin stdin a propósito: en «preguntar» no se debe leer, y si lo hiciera
+    # este test se colgaría o fallaría al no haber nada que leer.
+    assert cli.main(["--gui-add", "Informes", "--modo", "preguntar"]) == 0
+    assert capsys.readouterr().out.strip() == "OK informes"
+    assert (escritorio / "Informes").is_dir()
+    assert config.leer("informes").modo == "preguntar"
+    assert secreto.leer("informes") is None
+
+
+def test_listar_en_preguntar_no_avisa_de_falta_de_contrasena(capsys, sin_keyring):
+    cli.main(["--gui-add", "Informes", "--modo", "preguntar"])
+    capsys.readouterr()
+    cli.main(["--gui-listar"])
+    campos = capsys.readouterr().out.strip().split("\t")
+    # «tiene_clave» a 0 es lo esperado aquí, y por eso la GUI mira el modo
+    # antes de pintar el aviso de «sin contraseña».
+    assert campos[4] == "0"
+    assert campos[5] == "preguntar"
+
+
+def test_set_pass_a_preguntar_borra_la_guardada(capsys, monkeypatch, sin_keyring):
+    entrada(monkeypatch, "contraseña-larga")
+    cli.main(["--gui-add", "Informes"])
+    capsys.readouterr()
+
+    assert cli.main(["--gui-set-pass", "informes", "--modo", "preguntar"]) == 0
+    assert capsys.readouterr().out.strip() == "OK"
+    assert config.leer("informes").modo == "preguntar"
+    assert secreto.leer("informes") is None, "no puede quedar un secreto huérfano"
+
+
+def test_set_pass_vuelve_a_fija(capsys, monkeypatch, sin_keyring):
+    cli.main(["--gui-add", "Informes", "--modo", "preguntar"])
+    capsys.readouterr()
+
+    entrada(monkeypatch, "contraseña-larga")
+    assert cli.main(["--gui-set-pass", "informes", "--modo", "fija"]) == 0
+    assert config.leer("informes").modo == "fija"
+    assert secreto.leer("informes") == "contraseña-larga"
+
+
+def test_set_pass_sin_modo_conserva_el_de_la_carpeta(monkeypatch, sin_keyring):
+    cli.main(["--gui-add", "Informes", "--modo", "preguntar"])
+    # La GUI siempre manda --modo, pero el bash admite omitirlo: sin él se
+    # respeta el modo que ya tenía la carpeta y no se lee ninguna contraseña.
+    assert cli.main(["--gui-set-pass", "informes"]) == 0
+    assert config.leer("informes").modo == "preguntar"
+    assert secreto.leer("informes") is None
+
+
+def test_rename_conserva_el_modo(escritorio, sin_keyring):
+    cli.main(["--gui-add", "Informes", "--modo", "preguntar"])
+    assert cli.main(["--gui-rename", "informes", "Confidencial"]) == 0
+    assert config.leer("informes").modo == "preguntar"
+
+
+def test_modo_desconocido_cae_en_fija(capsys, monkeypatch, sin_keyring):
+    entrada(monkeypatch, "contraseña-larga")
+    assert cli.main(["--gui-add", "Informes", "--modo", "inventado"]) == 0
+    assert config.leer("informes").modo == "fija"

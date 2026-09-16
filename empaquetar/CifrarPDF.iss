@@ -9,7 +9,7 @@
 ; primera carpeta. Quien no lo use no tiene nada corriendo.
 
 #define MiApp "Cifrar PDF"
-#define MiVersion "1.0.0"
+#define MiVersion "1.1.0"
 #define MiEditor "Fundación FISAT Salesianos Social"
 #define MiExe "CifrarPDF.exe"
 

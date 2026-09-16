@@ -74,10 +74,13 @@ jobs:
           $carpeta = "$env:CIFRARPDF_ESCRITORIO\Informes"
           if (-not (Test-Path $carpeta)) { throw "no creó la carpeta" }
 
-          # 2. El listado: cinco campos, con carpeta existente y contraseña puesta.
+          # 2. El listado: seis campos, con carpeta existente, contraseña puesta
+          #    y modo «fija». El 6º campo es el contrato que lee la ventana para
+          #    saber si tiene que pintar «Pregunta cada vez».
           $fila = (& $exe --gui-listar) -split "`t"
-          if ($fila.Count -ne 5) { throw "listado con $($fila.Count) campos" }
+          if ($fila.Count -ne 6) { throw "listado con $($fila.Count) campos" }
           if ($fila[3] -ne "1" -or $fila[4] -ne "1") { throw "listado: $($fila -join '|')" }
+          if ($fila[5] -ne "fija") { throw "modo inesperado: $($fila[5])" }
 
           # 3. El vigilante tiene que registrarse: arrancar el ejecutable y cargar
           #    sus dependencias tarda unos segundos en un runner frío.
@@ -109,7 +112,23 @@ jobs:
           # 5. Y que se abra con su contraseña, con el contenido intacto.
           python -c "import pikepdf,sys; d=pikepdf.open(sys.argv[1], password=sys.argv[2]); assert len(d.pages)==2, 'páginas perdidas'; assert d.encryption.R==6, 'no es AES-256'; print('abre con la contraseña, 2 páginas, AES-256')" "$carpeta\informe.pdf" $clave
 
-          # 6. Baja: para el vigilante SIN dejar procesos sueltos y borra la carpeta.
+          # 6. Modo «preguntar cada vez»: el alta NO debe leer la entrada
+          #    estándar (no hay contraseña que guardar). Si la leyera, aquí se
+          #    quedaría esperando o daría error de contraseña inválida. Va antes
+          #    de la baja final para que la comprobación de «no queda vigilante»
+          #    cubra también esta carpeta.
+          $alta = & $exe --gui-add "Pregunta" --modo preguntar
+          if ($alta -ne "OK pregunta") { throw "alta preguntando: '$alta'" }
+          $filas = (& $exe --gui-listar) -split "`r?`n" | Where-Object { $_ }
+          $pregunta = $filas | Where-Object { $_ -like "pregunta`t*" }
+          $campos = $pregunta -split "`t"
+          if ($campos[4] -ne "0" -or $campos[5] -ne "preguntar") {
+            throw "listado tras el alta preguntando: $($campos -join '|')"
+          }
+          $baja = & $exe --gui-remove "pregunta" --borrar-carpeta
+          if ($baja -ne "OK") { throw "baja de la que pregunta: '$baja'" }
+
+          # 7. Baja: para el vigilante SIN dejar procesos sueltos y borra la carpeta.
           $baja = & $exe --gui-remove "informes" --borrar-carpeta
           if ($baja -ne "OK") { throw "baja: '$baja'" }
           if (Test-Path $carpeta) { throw "no borró la carpeta" }
