@@ -7,3 +7,4 @@ dist/
 *.spec.bak
 salida/
 .venv/
+*.egg-info/
