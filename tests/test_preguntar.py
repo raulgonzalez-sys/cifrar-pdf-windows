@@ -10,6 +10,9 @@ import pytest
 
 from cifrarpdf import cifrar, config, preguntar, secreto, vigilante
 
+# Marca para el atendedor de mentira: «el diálogo se cerró solo».
+CADUCA = object()
+
 
 @pytest.fixture(autouse=True)
 def lote_limpio():
@@ -40,7 +43,14 @@ def atendedor(monkeypatch):
             if peticion.tipo == "avisar":
                 peticion.resultado = True
             elif self.respuestas:
-                peticion.resultado = self.respuestas.pop(0)
+                respuesta = self.respuestas.pop(0)
+                # CADUCA imita el diálogo que se cierra solo al agotarse su
+                # plazo, que no es lo mismo que pulsar Cancelar.
+                if respuesta is CADUCA:
+                    peticion.caducada = True
+                    peticion.resultado = None
+                else:
+                    peticion.resultado = respuesta
             else:
                 peticion.resultado = None
             peticion.atendida.set()
@@ -134,34 +144,88 @@ def test_lote_es_por_carpeta():
 
 def test_pide_dos_veces_y_devuelve_la_contrasena(atendedor):
     atendedor.respuestas = ["contraseña-larga", "contraseña-larga"]
-    assert preguntar.pedir_clave_confirmada("t", "x") == "contraseña-larga"
+    assert preguntar.pedir_clave_confirmada("t", "x") == ("contraseña-larga", None)
     assert len(atendedor.vistas) == 2
+
+
+def test_la_confirmacion_dice_que_es_una_confirmacion(atendedor):
+    """El segundo cuadro tiene que explicar que es la repetición.
+
+    Con el mismo texto las dos veces, parece que la primera no se ha
+    registrado y se vuelve a escribir otra cosa.
+    """
+    atendedor.respuestas = ["contraseña-larga", "contraseña-larga"]
+    preguntar.pedir_clave_confirmada("t", "Contraseña para «x»:")
+    assert atendedor.vistas[1] == ("pedir",
+                                   "Escríbela otra vez para confirmarla.")
 
 
 def test_si_no_coinciden_se_vuelve_a_preguntar(atendedor):
     atendedor.respuestas = ["contraseña-larga", "otra-distinta",
                             "contraseña-larga", "contraseña-larga"]
-    assert preguntar.pedir_clave_confirmada("t", "x") == "contraseña-larga"
-    assert ("avisar", "Las contraseñas no coinciden. Inténtalo de nuevo.") \
-        in atendedor.vistas
+    assert preguntar.pedir_clave_confirmada("t", "x") == ("contraseña-larga", None)
+    assert any(tipo == "avisar" and "no coincidían" in texto
+               for tipo, texto in atendedor.vistas)
 
 
 def test_contrasena_corta_no_se_acepta(atendedor):
     atendedor.respuestas = ["corta", "contraseña-larga", "contraseña-larga"]
-    assert preguntar.pedir_clave_confirmada("t", "x") == "contraseña-larga"
+    assert preguntar.pedir_clave_confirmada("t", "x") == ("contraseña-larga", None)
     assert any(tipo == "avisar" and "no válida" in texto
                for tipo, texto in atendedor.vistas)
 
 
 def test_cancelar_devuelve_nada(atendedor):
     atendedor.respuestas = [None]
-    assert preguntar.pedir_clave_confirmada("t", "x") is None
+    assert preguntar.pedir_clave_confirmada("t", "x") == (None, preguntar.CANCELADO)
+
+
+def test_caducar_no_es_lo_mismo_que_cancelar(atendedor):
+    """Nadie delante ≠ alguien que dice que no: el aviso siguiente cambia."""
+    atendedor.respuestas = [CADUCA]
+    assert preguntar.pedir_clave_confirmada("t", "x") == (None, preguntar.CADUCADO)
+
+
+def test_tres_veces_sin_coincidir_lo_dice_asi(atendedor):
+    """Y NO «no has introducido ninguna contraseña», que era la mentira."""
+    atendedor.respuestas = ["contraseña-larga", "otra-distinta"] * 3
+    clave, motivo = preguntar.pedir_clave_confirmada("t", "x")
+    assert clave is None
+    assert motivo == preguntar.NO_COINCIDEN
+    assert "no coincidían" in preguntar.texto_motivo(motivo)
 
 
 def test_sin_atendedor_no_se_pregunta():
     preguntar.registrar_atendedor(None)
     assert not preguntar.hay_atendedor()
-    assert preguntar.pedir_clave_confirmada("t", "x") is None
+    assert preguntar.pedir_clave_confirmada("t", "x") == (None, preguntar.CANCELADO)
+
+
+# --- Textos ------------------------------------------------------------------
+
+def test_recortar_nombre_recorta_por_el_centro():
+    largo = "informe-confidencial-de-seguimiento-del-itinerario-2026.pdf"
+    corto = preguntar.recortar_nombre(largo, 24)
+    assert len(corto) <= 24
+    assert corto.startswith("informe-con")
+    assert corto.endswith("2026.pdf"), "el final es lo que distingue el fichero"
+    assert "…" in corto
+
+
+def test_recortar_nombre_deja_en_paz_los_cortos():
+    assert preguntar.recortar_nombre("informe.pdf") == "informe.pdf"
+
+
+def test_lista_pendientes_nombra_tres_y_cuenta_el_resto(escritorio):
+    rutas = [escritorio / f"{i}.pdf" for i in range(6)]
+    texto = preguntar.lista_pendientes(rutas)
+    assert texto.count("•") == 3
+    assert "… y 3 más" in texto
+
+
+def test_lista_pendientes_sin_resto(escritorio):
+    texto = preguntar.lista_pendientes([escritorio / "uno.pdf"])
+    assert texto == "  • uno.pdf"
 
 
 # --- El vigilante de punta a punta ------------------------------------------
@@ -265,3 +329,48 @@ def test_el_vigilante_ignora_los_marcados(escritorio):
     assert cola.empty()
     manejador._quizas(str(escritorio / "informe.pdf"), False)
     assert cola.qsize() == 1
+
+
+def test_el_aviso_del_ultimo_intento_dice_la_verdad(atendedor, carpeta_preguntar):
+    """Tres parejas que no coinciden no son «no has escrito ninguna».
+
+    Era el mensaje que salía antes en los tres casos, y acusaba de no haber
+    escrito nada a quien acababa de teclear seis veces.
+    """
+    fichero = pdf(carpeta_preguntar.ruta)
+    atendedor.respuestas = ["contraseña-larga", "otra-distinta"] * 3 + [None]
+    vigilante._procesar_preguntando(fichero, carpeta_preguntar)
+    avisos = [t for tipo, t in atendedor.vistas if tipo == "avisar"]
+    assert any("no coincidían" in t and "última vez" in t for t in avisos)
+
+
+def test_el_aviso_distingue_el_tiempo_agotado(atendedor, carpeta_preguntar):
+    fichero = pdf(carpeta_preguntar.ruta)
+    atendedor.respuestas = [CADUCA, None]
+    vigilante._procesar_preguntando(fichero, carpeta_preguntar)
+    avisos = [t for tipo, t in atendedor.vistas if tipo == "avisar"]
+    assert any("sin respuesta" in t for t in avisos)
+
+
+def test_el_dialogo_dice_la_carpeta_y_cuantos_hay(atendedor, carpeta_preguntar):
+    pdf(carpeta_preguntar.ruta, "uno.pdf")
+    pdf(carpeta_preguntar.ruta, "dos.pdf")
+    atendedor.respuestas = ["contraseña-larga", "contraseña-larga", False]
+    vigilante._procesar_preguntando(
+        carpeta_preguntar.ruta / "uno.pdf", carpeta_preguntar)
+    primero = atendedor.vistas[0][1]
+    assert "Informes" in primero, "la carpeta, no solo en el título de ventana"
+    assert "uno.pdf" in primero
+    assert "2 PDF sin proteger" in primero, "el recuento, ANTES de teclear"
+
+
+def test_la_oferta_de_lote_nombra_los_pdf(atendedor, carpeta_preguntar):
+    """«Hay 7 PDF sin cifrar» cuando solo has soltado uno desconcierta."""
+    for nombre in ("uno.pdf", "dos.pdf", "tres.pdf"):
+        pdf(carpeta_preguntar.ruta, nombre)
+    atendedor.respuestas = ["contraseña-larga", "contraseña-larga", True]
+    vigilante._procesar_preguntando(
+        carpeta_preguntar.ruta / "uno.pdf", carpeta_preguntar)
+    oferta = next(t for tipo, t in atendedor.vistas if tipo == "confirmar")
+    for nombre in ("uno.pdf", "dos.pdf", "tres.pdf"):
+        assert nombre in oferta

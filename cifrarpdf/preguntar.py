@@ -42,6 +42,51 @@ REUSO_TTL = 120.0
 # Vueltas antes de rendirse cuando la contraseña no vale o no coinciden.
 INTENTOS = 3
 
+# Por qué no hay contraseña. Se distinguen para poder decir la verdad en el
+# aviso: con una sola causa, el mensaje acusaba de «no has introducido ninguna
+# contraseña» a quien acababa de escribir seis que no coincidían.
+CANCELADO = "cancelado"
+CADUCADO = "caducado"
+NO_COINCIDEN = "no_coinciden"
+
+MOTIVOS = {
+    CANCELADO: "Se ha cancelado la contraseña.",
+    CADUCADO: "Han pasado {minutos} minutos sin respuesta.",
+    NO_COINCIDEN: "Las contraseñas que has escrito no coincidían.",
+}
+
+
+def texto_motivo(motivo: str) -> str:
+    plantilla = MOTIVOS.get(motivo, MOTIVOS[CANCELADO])
+    return plantilla.format(minutos=int(ESPERA_PREGUNTA // 60))
+
+
+def recortar_nombre(nombre: str, maximo: int = 48) -> str:
+    """Recorta por el CENTRO un nombre demasiado largo.
+
+    Por el centro porque el final de un nombre de fichero suele ser lo que lo
+    distingue («…informe-2026-marzo.pdf»). Sin esto, un nombre largo estira el
+    diálogo a lo ancho hasta dejar los botones fuera de la pantalla.
+    """
+    if len(nombre) <= maximo:
+        return nombre
+    mitad = maximo // 2 - 1
+    return f"{nombre[:mitad]}…{nombre[-mitad:]}"
+
+
+def lista_pendientes(pendientes) -> str:
+    """Los tres primeros nombres del lote y «y N más».
+
+    Se nombran porque «hay 7 PDF sin cifrar» cuando solo has soltado uno
+    desconcierta: los otros seis son antiguos que seguían sin proteger, y
+    conviene ver cuáles son antes de decir que sí.
+    """
+    lineas = [f"  • {recortar_nombre(ruta.name, 44)}"
+              for ruta in pendientes[:3]]
+    if len(pendientes) > 3:
+        lineas.append(f"  … y {len(pendientes) - 3} más")
+    return "\n".join(lineas)
+
 
 # --- Diálogos ----------------------------------------------------------------
 
@@ -53,6 +98,10 @@ class Peticion:
     titulo: str
     texto: str
     resultado: object = None
+    # La marca el hilo de Qt cuando cierra el diálogo por agotarse su plazo,
+    # para poder distinguirlo de un «Cancelar» a mano: no es lo mismo que
+    # nadie estuviera delante que que alguien dijera que no.
+    caducada: bool = False
     atendida: threading.Event = field(default_factory=threading.Event)
 
 
@@ -71,58 +120,68 @@ def hay_atendedor() -> bool:
     return _atendedor is not None
 
 
-def _preguntar(tipo: str, titulo: str, texto: str, espera: float):
+def _preguntar(tipo: str, titulo: str, texto: str,
+               espera: float) -> tuple[object, bool]:
+    """Lanza un diálogo y espera. Devuelve (respuesta, ¿se agotó el plazo?)."""
     if _atendedor is None:
-        return None
+        return None, False
     peticion = Peticion(tipo=tipo, titulo=titulo, texto=texto)
     try:
         _atendedor(peticion)
     except Exception as error:  # noqa: BLE001 — un diálogo no tumba el vigilante
         rutas.log(f"AVISO: no se pudo mostrar el diálogo de contraseña: {error}")
-        return None
+        return None, False
     if not peticion.atendida.wait(espera):
+        # Ni siquiera contestó el hilo de Qt: cuenta como plazo agotado.
         rutas.log("Diálogo de contraseña sin respuesta a tiempo.")
-        return None
-    return peticion.resultado
+        return None, True
+    return peticion.resultado, peticion.caducada
 
 
-def pedir_clave(titulo: str, texto: str) -> str | None:
-    """Un diálogo de contraseña. None si se cancela o no se contesta."""
-    respuesta = _preguntar("pedir", titulo, texto, ESPERA_PREGUNTA)
-    return respuesta or None
+def pedir_clave(titulo: str, texto: str) -> tuple[str | None, bool]:
+    """Un diálogo de contraseña. Devuelve (clave, ¿se agotó el plazo?)."""
+    respuesta, caducada = _preguntar("pedir", titulo, texto, ESPERA_PREGUNTA)
+    return (respuesta or None), caducada
 
 
 def avisar(titulo: str, texto: str) -> None:
     """Aviso modal entre dos intentos (contraseña corta, no coinciden)."""
-    if _preguntar("avisar", titulo, texto, 60.0) is None:
+    if _preguntar("avisar", titulo, texto, 60.0)[0] is None:
         rutas.log(f"AVISO: {titulo} — {texto}")
 
 
 def confirmar(titulo: str, texto: str) -> bool:
-    return _preguntar("confirmar", titulo, texto, 120.0) is True
+    return _preguntar("confirmar", titulo, texto, 120.0)[0] is True
 
 
-def pedir_clave_confirmada(titulo: str, texto: str) -> str | None:
+def pedir_clave_confirmada(titulo: str, texto: str) -> tuple[str | None, str | None]:
     """Contraseña + confirmación, igual que al crear la carpeta.
 
     Se pide dos veces a propósito: el original se sustituye por la versión
     cifrada, así que una errata dejaría un PDF que no se puede abrir nunca.
+
+    Devuelve (clave, motivo). Con la clave puesta, el motivo es None; si no,
+    dice POR QUÉ no la hay: cancelada, sin respuesta a tiempo, o nunca
+    llegaron a coincidir.
     """
     for _ in range(INTENTOS):
-        primera = pedir_clave(titulo, texto)
+        primera, caducada = pedir_clave(titulo, texto)
         if not primera:
-            return None
+            return None, (CADUCADO if caducada else CANCELADO)
         problema = secreto.validar_clave(primera)
         if problema:
             avisar(titulo, f"Contraseña no válida:\n{problema}")
             continue
-        segunda = pedir_clave(titulo, "Repite la contraseña para confirmarla:")
+        segunda, caducada = pedir_clave(
+            titulo, "Escríbela otra vez para confirmarla.")
         if segunda is None:
-            return None
+            return None, (CADUCADO if caducada else CANCELADO)
         if primera == segunda:
-            return primera
-        avisar(titulo, "Las contraseñas no coinciden. Inténtalo de nuevo.")
-    return None
+            return primera, None
+        avisar(titulo,
+               "Las contraseñas que has escrito no coincidían. "
+               "Vamos a repetirlo.")
+    return None, NO_COINCIDEN
 
 
 # --- Lote --------------------------------------------------------------------

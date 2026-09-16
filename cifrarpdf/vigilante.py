@@ -140,30 +140,45 @@ def _procesar_preguntando(ruta: Path, carpeta: config.Carpeta) -> None:
     if not preguntar.hay_atendedor():
         rutas.log("Sin interfaz para preguntar la contraseña: "
                   f"se marca sin cifrar {ruta.name}")
-        _avisar_sin_cifrar(ruta)
+        _avisar_sin_cifrar(ruta, carpeta.nombre)
         return
 
     # Se mira cuántos hay antes de preguntar: si se soltaron varios de golpe,
     # ya están todos en el disco y se puede ofrecer una sola contraseña.
     pendientes = preguntar.pendientes_sin_cifrar(carpeta.ruta)
 
-    clave = preguntar.pedir_clave_confirmada(
-        titulo, f"Contraseña para «{ruta.name}»:")
+    # El texto del diálogo dice DÓNDE está el PDF y cuántos hay pendientes.
+    # Antes la carpeta solo aparecía en el título de la ventana (que se trunca
+    # y que mucha gente no lee) y el recuento del lote se mencionaba DESPUÉS de
+    # teclear la contraseña dos veces, así que se decidía a ciegas.
+    corto = preguntar.recortar_nombre(ruta.name)
+    contexto = ""
+    if len(pendientes) > 1:
+        contexto = (f"\nEn esta carpeta hay {len(pendientes)} PDF sin proteger; "
+                    "luego te pregunto si quieres usar la misma contraseña "
+                    "para todos.")
+    pedir = (f"Carpeta «{carpeta.nombre}».\n"
+             f"Contraseña para proteger «{corto}» "
+             f"(mínimo {secreto.MIN_CLAVE} caracteres).{contexto}")
+
+    clave, motivo = preguntar.pedir_clave_confirmada(titulo, pedir)
     if not clave:
         preguntar.avisar(
             titulo,
-            "No se ha introducido ninguna contraseña.\n"
-            "Último intento antes de dejar el PDF sin cifrar.")
-        clave = preguntar.pedir_clave_confirmada(
-            titulo, f"Contraseña para «{ruta.name}» (último intento):")
+            f"{preguntar.texto_motivo(motivo)}\n"
+            "Vamos a intentarlo una última vez; si no, el PDF se quedará "
+            "SIN proteger.")
+        clave, _motivo = preguntar.pedir_clave_confirmada(
+            titulo, f"{pedir}\n(Último intento.)")
     if not clave:
-        _avisar_sin_cifrar(ruta)
+        _avisar_sin_cifrar(ruta, carpeta.nombre)
         return
 
     if len(pendientes) > 1 and preguntar.confirmar(
             titulo,
-            f"Hay {len(pendientes)} PDF sin cifrar en «{carpeta.nombre}».\n"
-            "¿Usar esta misma contraseña para todos?"):
+            f"En «{carpeta.nombre}» hay {len(pendientes)} PDF sin proteger:\n"
+            f"{preguntar.lista_pendientes(pendientes)}\n"
+            "¿Uso esta misma contraseña para todos?"):
         _lote.guardar(carpeta.id, clave)
         rutas.log(f"Lote de {len(pendientes)} PDF con una sola contraseña en "
                   f"«{carpeta.nombre}» (reuso {preguntar.REUSO_TTL:.0f} s).")
@@ -175,19 +190,35 @@ def _procesar_preguntando(ruta: Path, carpeta: config.Carpeta) -> None:
     _cifrar_y_avisar(ruta, clave)
 
 
-def _avisar_sin_cifrar(ruta: Path) -> None:
-    """Deja constancia, en el nombre y en un aviso, de que NO se ha cifrado."""
+def _avisar_sin_cifrar(ruta: Path, nombre_carpeta: str = "") -> None:
+    """Deja constancia, en el nombre y en un aviso, de que NO se ha cifrado.
+
+    El nombre del fichero se recorta y se dice UNA sola vez: antes salía
+    entero y dos veces en el mismo aviso, que es lo que estiraba el cuadro.
+    """
+    corto = preguntar.recortar_nombre(ruta.name)
+    if nombre_carpeta:
+        donde = (f"Sigue en la carpeta «{nombre_carpeta}»: suelta ahí "
+                 "cualquier PDF y te volveré a pedir la contraseña para "
+                 "protegerlos todos, este incluido.")
+    else:
+        donde = ("Sigue en su carpeta: suelta ahí cualquier PDF y te volveré "
+                 "a pedir la contraseña para protegerlos todos, este incluido.")
+
+    if preguntar.es_marcado(ruta.name):
+        notificar.error("PDF SIN CIFRAR",
+                        f"«{corto}» sigue SIN proteger.\n{donde}")
+        return
     destino = preguntar.marcar_sin_cifrar(ruta)
     if destino == ruta:
-        notificar.error(
-            "PDF SIN CIFRAR",
-            f"No se introdujo la contraseña: «{ruta.name}» NO se ha cifrado y "
-            "sigue sin proteger.")
+        notificar.error("PDF SIN CIFRAR",
+                        f"«{corto}» NO está protegido.\n{donde}")
         return
     notificar.error(
         "PDF SIN CIFRAR",
-        f"No se introdujo la contraseña: «{ruta.name}» NO se ha cifrado.\n"
-        f"Sigue sin proteger, renombrado a «{destino.name}».")
+        f"«{corto}» NO está protegido.\n"
+        "Le he puesto delante «SIN-CIFRAR_» para que no se te pase.\n"
+        f"{donde}")
 
 
 def _trabajador(cola: queue.Queue[Path], mapa: dict[str, config.Carpeta],
@@ -365,6 +396,7 @@ def _bucle_con_bandeja() -> int:
         QApplication,
         QDialog,
         QInputDialog,
+        QLabel,
         QLineEdit,
         QMenu,
         QMessageBox,
@@ -451,6 +483,13 @@ def _bucle_con_bandeja() -> int:
         está mirando otra ventana (el explorador, el visor) y un diálogo de una
         aplicación de la bandeja se queda detrás con facilidad.
         """
+        def caducar(dialogo) -> None:  # noqa: ANN001 — QDialog
+            # Se deja dicho ANTES de cerrar: quien espera necesita distinguir
+            # «nadie estaba delante» de «han pulsado Cancelar», porque el
+            # aviso siguiente le echa la culpa a uno o a otro.
+            peticion.caducada = True
+            dialogo.reject()
+
         try:
             if peticion.tipo == "pedir":
                 dialogo = QInputDialog()
@@ -459,8 +498,16 @@ def _bucle_con_bandeja() -> int:
                 dialogo.setTextEchoMode(QLineEdit.EchoMode.Password)
                 dialogo.setWindowIcon(icono)
                 dialogo.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
-                QTimer.singleShot(
-                    int(preguntar.ESPERA_PREGUNTA * 1000), dialogo.reject)
+                # El texto lleva varias líneas (carpeta, fichero, cuántos hay
+                # pendientes) y puede traer un nombre largo: sin wordWrap la
+                # etiqueta estira el diálogo a lo ancho hasta salirse de la
+                # pantalla, dejando los botones fuera.
+                etiqueta = dialogo.findChild(QLabel)
+                if etiqueta is not None:
+                    etiqueta.setWordWrap(True)
+                dialogo.setMinimumWidth(420)
+                QTimer.singleShot(int(preguntar.ESPERA_PREGUNTA * 1000),
+                                  lambda: caducar(dialogo))
                 aceptado = _mostrar(dialogo) == QDialog.DialogCode.Accepted
                 peticion.resultado = dialogo.textValue() if aceptado else None
             elif peticion.tipo == "confirmar":
@@ -470,7 +517,7 @@ def _bucle_con_bandeja() -> int:
                                    | QMessageBox.StandardButton.No)
                 caja.setWindowIcon(icono)
                 caja.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
-                QTimer.singleShot(120_000, caja.reject)
+                QTimer.singleShot(120_000, lambda: caducar(caja))
                 peticion.resultado = (
                     _mostrar(caja) == QMessageBox.StandardButton.Yes)
             else:
@@ -479,7 +526,7 @@ def _bucle_con_bandeja() -> int:
                                    QMessageBox.StandardButton.Ok)
                 caja.setWindowIcon(icono)
                 caja.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
-                QTimer.singleShot(60_000, caja.reject)
+                QTimer.singleShot(60_000, lambda: caducar(caja))
                 _mostrar(caja)
                 peticion.resultado = True
         finally:

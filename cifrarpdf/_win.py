@@ -90,6 +90,9 @@ ole32.CLSIDFromString.argtypes = [wintypes.LPCWSTR, ctypes.POINTER(GUID)]
 ole32.CoTaskMemFree.restype = None
 ole32.CoTaskMemFree.argtypes = [wintypes.LPVOID]
 
+shell32.SetCurrentProcessExplicitAppUserModelID.restype = ctypes.HRESULT
+shell32.SetCurrentProcessExplicitAppUserModelID.argtypes = [wintypes.LPCWSTR]
+
 shell32.SHGetKnownFolderPath.restype = ctypes.HRESULT
 shell32.SHGetKnownFolderPath.argtypes = [
     ctypes.POINTER(GUID), wintypes.DWORD, wintypes.HANDLE,

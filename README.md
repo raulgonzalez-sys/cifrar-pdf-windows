@@ -31,6 +31,11 @@ Tres cosas que conviene tener claras:
 - **Un PDF ya cifrado no se vuelve a cifrar**, así que puedes soltar lo que sea
   sin miedo a cifrarlo dos veces.
 
+Cada carpeta de la lista lleva una marca que dice cómo está: «✓ Lista»,
+«🔑 Pregunta cada vez», «✕ Sin contraseña» o «⚠ Carpeta no encontrada». Se puede
+manejar todo sin ratón (Tab recorre la barra, la tecla Menú abre las opciones de
+la carpeta seleccionada) y cada atajo aparece en su propio tooltip.
+
 ### Dos formas de poner la contraseña
 
 Al crear una carpeta —y siempre que pulses **Contraseña**— eliges una de las dos:
@@ -105,8 +110,8 @@ antes de desinstalar se usa **«Quitar todas las carpetas»** en la ventana.
 
 | Síntoma | Qué mirar |
 |---|---|
-| Los PDF no se cifran | ¿Está el vigilante en marcha? En la ventana, el punto de la esquina inferior derecha: verde = activo. También el icono junto al reloj |
-| «No tiene contraseña guardada» | La contraseña se borró del Administrador de credenciales (perfil nuevo, cuenta distinta). En la ventana: *Contraseña*. Ojo: en una carpeta que pregunta cada vez **no** sale este aviso, sale «🔑 Pregunta cada vez» |
+| Los PDF no se cifran | ¿Está el vigilante en marcha? La ventana lo dice abajo a la derecha («✓ Vigilante activo» / «✕ Vigilante detenido») y, si está parado habiendo carpetas, saca además una banda de aviso. También el icono junto al reloj |
+| «✕ Sin contraseña» | La contraseña se borró del Administrador de credenciales (perfil nuevo, cuenta distinta). En la ventana: *Contraseña*. Ojo: en una carpeta que pregunta cada vez **no** sale este aviso, sale «🔑 Pregunta cada vez» |
 | Aparecen ficheros `SIN-CIFRAR_…` | Una carpeta que pregunta cada vez y nadie escribió la contraseña. Ese PDF **sigue sin proteger**: suelta otro PDF en la carpeta y entrará en el mismo lote |
 | Nada aparece en el registro | *Ver registro* en la ventana, o `%LOCALAPPDATA%\FISAT\CifrarPDF\cifrar-pdf.log` |
 | El antivirus bloquea el .exe | Falso positivo típico de los ejecutables empaquetados con PyInstaller. Excluir `C:\Program Files\FISAT\CifrarPDF` |

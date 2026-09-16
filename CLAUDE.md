@@ -102,6 +102,33 @@ técnico. Los mensajes se escriben para ellas.
     no se ignorara ese prefijo (en `_Manejador._quizas`) se preguntaría la
     contraseña en bucle sobre el mismo PDF. Mismo motivo por el que el bucle de
     `inotifywait` del bash los salta.
+14. **Tres mentiras de `QIcon` que dejan huecos.** `QIcon.fromTheme()` puede
+    devolver un icono **no nulo pero vacío**, así que preguntar con `isNull()`
+    no dispara la cadena de alternativas: se pregunta con
+    `QIcon.hasThemeIcon()`. `QIcon(ruta)` **nunca** es nulo aunque el fichero
+    no se pueda decodificar, porque Qt lo carga en diferido: quien decide es
+    el `QPixmap`. Y `QIcon.pixmap()` **no amplía** por encima del tamaño
+    natural del fichero y devuelve el pixmap con `devicePixelRatio` 1 — al
+    125-150 % de escalado, que es lo normal en Windows, sale borroso. Todo
+    icono pasa por `pixmap_nitido()`.
+15. **`palette(mid)` no es un color de texto.** Es el rol de sombreado de
+    marcos, derivado del fondo: daba unos 2:1 de contraste en la ruta y el
+    contador de PDF. Y `lightness() < 128` para decidir si el tema es oscuro
+    se equivoca con grises medios. Todo el color va por la capa única de la
+    cabecera de `gui.py` (`tema_oscuro()` por luminancias, `semantico()`,
+    `escala_fuente()`), y `Ventana.changeEvent` la recalcula al cambiar el
+    tema del sistema: si no, los chips se quedan con los colores del tema
+    anterior hasta cerrar y reabrir la ventana.
+16. **Nada de píxeles fijos para la ventana.** Con 760×520 fijos la barra de
+    herramientas no cabía y Qt escondía acciones tras el botón de
+    desbordamiento; y al 150 % en un 1366×768 una ventana «generosa» sale más
+    alta que el escritorio. `_dimensionar()` calcula en unidades de fuente y
+    acota a la pantalla disponible. Por lo mismo, los tamaños de letra son
+    relativos: quien sube la fuente del sistema por vista cansada hacía crecer
+    todo menos justo los textos que peor se leían.
+17. **`QToolBar` crea sus botones con `NoFocus`.** La barra entera quedaba
+    fuera del recorrido del Tab, así que sin ratón no se llegaba a ninguna
+    acción. Se les pone `TabFocus` a mano al construirla.
 
 ## `gui.py` es un fork de la GUI de Debian
 
