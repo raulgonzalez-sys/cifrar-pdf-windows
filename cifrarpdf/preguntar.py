@@ -191,16 +191,22 @@ class Lote:
 
     Solo en memoria y con caducidad: pasados `REUSO_TTL` segundos se vuelve a
     preguntar. Nunca se escribe en ningún sitio.
+
+    El reloj se puede sustituir para poder probar la caducidad sin esperar.
+    No es un lujo: `time.monotonic()` en Windows avanza a saltos de unos 15 ms,
+    así que un test que duerma un poco y compruebe si ya caducó sale cara o
+    cruz — y salió cruz en el CI.
     """
 
-    def __init__(self, ttl: float = REUSO_TTL) -> None:
+    def __init__(self, ttl: float = REUSO_TTL, reloj=time.monotonic) -> None:  # noqa: ANN001
         self._ttl = ttl
+        self._reloj = reloj
         self._claves: dict[str, tuple[str, float]] = {}
         self._cerrojo = threading.Lock()
 
     def guardar(self, cid: str, clave: str) -> None:
         with self._cerrojo:
-            self._claves[cid] = (clave, time.monotonic() + self._ttl)
+            self._claves[cid] = (clave, self._reloj() + self._ttl)
 
     def vigente(self, cid: str) -> str | None:
         with self._cerrojo:
@@ -208,7 +214,7 @@ class Lote:
             if guardado is None:
                 return None
             clave, caduca = guardado
-            if time.monotonic() >= caduca:
+            if self._reloj() >= caduca:
                 del self._claves[cid]
                 return None
             return clave

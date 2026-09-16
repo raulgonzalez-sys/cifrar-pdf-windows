@@ -4,8 +4,6 @@ Todo lo de aquí corre sin pantalla: el diálogo se sustituye por un atendedor d
 mentira que contesta lo que diga cada test, igual que haría la persona.
 """
 
-import time
-
 import pytest
 
 from cifrarpdf import cifrar, config, preguntar, secreto, vigilante
@@ -127,10 +125,22 @@ def test_limpiar_prefijo_no_pisa_un_fichero_existente(escritorio):
 # --- Lote --------------------------------------------------------------------
 
 def test_lote_caduca():
-    lote = preguntar.Lote(ttl=0.05)
+    """Con reloj de mentira: dormir de verdad hacía el test inestable.
+
+    `time.monotonic()` en Windows avanza a saltos de unos 15 ms, así que un
+    `sleep` de milésimas para pasarse del plazo salía cara o cruz — y en el CI
+    salió cruz. Con el reloj controlado se puede además comprobar el límite
+    exacto, que antes no se miraba.
+    """
+    ahora = [1000.0]
+    lote = preguntar.Lote(ttl=120.0, reloj=lambda: ahora[0])
     lote.guardar("informes", "contraseña-larga")
     assert lote.vigente("informes") == "contraseña-larga"
-    time.sleep(0.06)
+
+    ahora[0] += 119.9   # justo antes de caducar: sigue valiendo
+    assert lote.vigente("informes") == "contraseña-larga"
+
+    ahora[0] += 0.2     # pasado el plazo: se olvida
     assert lote.vigente("informes") is None
 
 
