@@ -54,6 +54,19 @@ def test_add_rechaza_nombres_imposibles(capsys, monkeypatch, nombre):
     assert capsys.readouterr().out.startswith("ERR ")
 
 
+@pytest.mark.parametrize("nombre", [".", ".."])
+def test_add_y_rename_rechazan_punto_y_dos_puntos(capsys, monkeypatch, sin_keyring, nombre):
+    entrada(monkeypatch, "contraseña-larga")
+    assert cli.main(["--gui-add", nombre]) == 1
+    assert capsys.readouterr().out.strip() == "ERR El nombre no puede ser «.» ni «..»."
+
+    entrada(monkeypatch, "contraseña-larga")
+    cli.main(["--gui-add", "Informes"])
+    capsys.readouterr()
+    assert cli.main(["--gui-rename", "informes", nombre]) == 1
+    assert capsys.readouterr().out.strip() == "ERR El nombre no puede ser «.» ni «..»."
+
+
 def test_add_rechaza_carpeta_repetida(capsys, monkeypatch, sin_keyring):
     entrada(monkeypatch, "contraseña-larga")
     cli.main(["--gui-add", "Informes"])

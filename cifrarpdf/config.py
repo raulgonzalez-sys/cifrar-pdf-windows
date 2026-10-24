@@ -77,6 +77,8 @@ def validar_nombre(nombre: str) -> str | None:
             return f"El nombre no puede contener «{caracter}»."
         if ord(caracter) < 32:
             return "El nombre contiene caracteres no imprimibles."
+    if nombre in (".", ".."):
+        return "El nombre no puede ser «.» ni «..»."
     if nombre.endswith("."):
         return "El nombre no puede acabar en punto."
     if nombre.upper() in RESERVADOS or nombre.upper().split(".")[0] in RESERVADOS:
