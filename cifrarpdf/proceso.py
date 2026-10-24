@@ -210,13 +210,34 @@ def parar(espera: float = 10.0) -> bool:
     return not activo()
 
 
+def pedir_barrido(cid: str) -> bool:
+    """Pide al vigilante que barra la carpeta «cid», que acaba de recibir clave fija.
+
+    Solo avisa: cifra el vigilante, para que dos procesos no cifren el mismo
+    fichero a la vez. Si no hay vigilante, el que arranque la barre al empezar.
+    Un id vacío, oculto o con separadores saldría de `barrer_dir`: se rechaza.
+    """
+    if not cid or cid.startswith(".") or "/" in cid or "\\" in cid:
+        return False
+    marcador = rutas.barrer_dir() / cid
+    # Se borra y se vuelve a crear para que siempre haya un evento de creación.
+    try:
+        marcador.unlink(missing_ok=True)
+        marcador.touch()
+    except OSError as error:
+        rutas.log(f"AVISO: no se pudo pedir el barrido de «{cid}»: {error}")
+        return False
+    return True
+
+
 def refrescar() -> None:
-    """Reaplica el estado tras un cambio de carpetas.
+    """Reaplica el estado tras añadir, renombrar o quitar carpetas.
 
     Mismo criterio que el backend Debian: si quedan carpetas, el vigilante
     queda en marcha con la lista al día y el autoarranque puesto; si no queda
     ninguna, se para y se quita el autoarranque — quien deja de usar la
     herramienta no se queda con nada arrancando en cada inicio de sesión.
+    Cambiar la clave o el modo no lo necesita: el vigilante los lee al cifrar.
     """
     parar()
     if config.hay_carpetas():

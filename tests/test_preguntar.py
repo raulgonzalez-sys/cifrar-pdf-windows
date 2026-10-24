@@ -101,12 +101,19 @@ def test_marcar_numera_si_el_nombre_esta_ocupado(escritorio):
     (escritorio / "SIN-CIFRAR_informe.pdf").write_bytes(b"%PDF-")
     fichero = escritorio / "informe.pdf"
     fichero.write_bytes(b"%PDF-")
-    assert preguntar.marcar_sin_cifrar(fichero).name == "SIN-CIFRAR_2_informe.pdf"
+    assert preguntar.marcar_sin_cifrar(fichero).name == "SIN-CIFRAR_informe (2).pdf"
+
+
+def test_ruta_libre(escritorio):
+    assert preguntar.ruta_libre(escritorio, "INFORME.PDF") == escritorio / "INFORME.PDF"
+    (escritorio / "INFORME.PDF").write_bytes(b"%PDF-")
+    (escritorio / "INFORME (2).PDF").write_bytes(b"%PDF-")
+    assert preguntar.ruta_libre(escritorio, "INFORME.PDF").name == "INFORME (3).PDF"
 
 
 @pytest.mark.parametrize(("marcado", "limpio"), [
     ("SIN-CIFRAR_informe.pdf", "informe.pdf"),
-    ("SIN-CIFRAR_2_informe.pdf", "informe.pdf"),
+    ("SIN-CIFRAR_2024_acta.pdf", "2024_acta.pdf"),
     ("informe.pdf", "informe.pdf"),
 ])
 def test_limpiar_prefijo(escritorio, marcado, limpio):
@@ -116,10 +123,20 @@ def test_limpiar_prefijo(escritorio, marcado, limpio):
 
 
 def test_limpiar_prefijo_no_pisa_un_fichero_existente(escritorio):
-    (escritorio / "informe.pdf").write_bytes(b"otro")
+    otro = escritorio / "informe.pdf"
+    otro.write_bytes(b"otro")
     fichero = escritorio / "SIN-CIFRAR_informe.pdf"
     fichero.write_bytes(b"%PDF-")
+    assert preguntar.limpiar_prefijo(fichero).name == "informe (2).pdf"
+    assert otro.read_bytes() == b"otro"
+    assert not fichero.exists()
+
+
+def test_limpiar_prefijo_no_deja_un_nombre_oculto(escritorio):
+    fichero = escritorio / "SIN-CIFRAR_.x.pdf"
+    fichero.write_bytes(b"%PDF-")
     assert preguntar.limpiar_prefijo(fichero) == fichero
+    assert fichero.exists()
 
 
 # --- Lote --------------------------------------------------------------------
@@ -185,6 +202,25 @@ def test_contrasena_corta_no_se_acepta(atendedor):
                for tipo, texto in atendedor.vistas)
 
 
+def test_tres_contrasenas_cortas_lo_dicen_asi(atendedor):
+    atendedor.respuestas = ["corta", "corta", "corta"]
+    clave, motivo = preguntar.pedir_clave_confirmada("t", "x")
+    assert clave is None
+    assert motivo == preguntar.CORTA
+    assert preguntar.texto_motivo(motivo) == (
+        f"La contraseña era demasiado corta (mínimo {secreto.MIN_CLAVE} caracteres).")
+
+
+def test_el_motivo_es_el_del_ultimo_fallo(atendedor):
+    atendedor.respuestas = ["corta", "corta",
+                            "contraseña-larga", "otra-distinta"]
+    assert preguntar.pedir_clave_confirmada("t", "x") == (None, preguntar.NO_COINCIDEN)
+
+    atendedor.respuestas = ["contraseña-larga", "otra-distinta",
+                            "contraseña-larga", "otra-distinta", "corta"]
+    assert preguntar.pedir_clave_confirmada("t", "x") == (None, preguntar.CORTA)
+
+
 def test_cancelar_devuelve_nada(atendedor):
     atendedor.respuestas = [None]
     assert preguntar.pedir_clave_confirmada("t", "x") == (None, preguntar.CANCELADO)
@@ -197,7 +233,7 @@ def test_caducar_no_es_lo_mismo_que_cancelar(atendedor):
 
 
 def test_tres_veces_sin_coincidir_lo_dice_asi(atendedor):
-    """Y NO «no has introducido ninguna contraseña», que era la mentira."""
+    """Y no «no has introducido ninguna contraseña»."""
     atendedor.respuestas = ["contraseña-larga", "otra-distinta"] * 3
     clave, motivo = preguntar.pedir_clave_confirmada("t", "x")
     assert clave is None
@@ -317,7 +353,21 @@ def test_sin_barrido_inicial_en_modo_preguntar(carpeta_preguntar):
     assert cola.empty()
 
 
-def test_el_barrido_inicial_sigue_activo_en_modo_fija(escritorio):
+def test_el_barrido_inicial_sigue_activo_en_modo_fija(escritorio, sin_keyring):
+    import queue
+    ruta = escritorio / "Nóminas"
+    ruta.mkdir()
+    config.escribir("nominas", "Nóminas", ruta, "fija")
+    secreto.guardar("nominas", "contraseña-larga")
+    carpeta = config.leer("nominas")
+    pdf(ruta)
+    cola = queue.Queue()
+    vigilante._encolar_existentes(cola, {vigilante._clave(ruta): carpeta})
+    assert cola.qsize() == 1
+
+
+def test_sin_barrido_inicial_en_fija_sin_contrasena(escritorio, sin_keyring, log):
+    """Se vigila igual; se barrerá cuando le pongan la contraseña."""
     import queue
     ruta = escritorio / "Nóminas"
     ruta.mkdir()
@@ -326,7 +376,9 @@ def test_el_barrido_inicial_sigue_activo_en_modo_fija(escritorio):
     pdf(ruta)
     cola = queue.Queue()
     vigilante._encolar_existentes(cola, {vigilante._clave(ruta): carpeta})
-    assert cola.qsize() == 1
+    assert cola.empty()
+    assert ("Sin barrido inicial en «Nóminas»: no tiene contraseña guardada."
+            in log.read_text(encoding="utf-8"))
 
 
 def test_el_vigilante_ignora_los_marcados(escritorio):
@@ -342,16 +394,21 @@ def test_el_vigilante_ignora_los_marcados(escritorio):
 
 
 def test_el_aviso_del_ultimo_intento_dice_la_verdad(atendedor, carpeta_preguntar):
-    """Tres parejas que no coinciden no son «no has escrito ninguna».
-
-    Era el mensaje que salía antes en los tres casos, y acusaba de no haber
-    escrito nada a quien acababa de teclear seis veces.
-    """
+    """Tres parejas que no coinciden no son «no has escrito ninguna»."""
     fichero = pdf(carpeta_preguntar.ruta)
     atendedor.respuestas = ["contraseña-larga", "otra-distinta"] * 3 + [None]
     vigilante._procesar_preguntando(fichero, carpeta_preguntar)
     avisos = [t for tipo, t in atendedor.vistas if tipo == "avisar"]
     assert any("no coincidían" in t and "última vez" in t for t in avisos)
+
+
+def test_el_aviso_del_ultimo_intento_dice_que_era_corta(atendedor, carpeta_preguntar):
+    fichero = pdf(carpeta_preguntar.ruta)
+    atendedor.respuestas = ["corta"] * 3 + [None]
+    vigilante._procesar_preguntando(fichero, carpeta_preguntar)
+    avisos = [t for tipo, t in atendedor.vistas if tipo == "avisar"]
+    texto = preguntar.texto_motivo(preguntar.CORTA)
+    assert any(t.startswith(texto) and "última vez" in t for t in avisos)
 
 
 def test_el_aviso_distingue_el_tiempo_agotado(atendedor, carpeta_preguntar):
@@ -384,3 +441,11 @@ def test_la_oferta_de_lote_nombra_los_pdf(atendedor, carpeta_preguntar):
     oferta = next(t for tipo, t in atendedor.vistas if tipo == "confirmar")
     for nombre in ("uno.pdf", "dos.pdf", "tres.pdf"):
         assert nombre in oferta
+
+
+def test_pendientes_cuenta_los_temp_del_usuario_y_no_los_ocultos(carpeta_preguntar):
+    pdf(carpeta_preguntar.ruta, "contrato_temp.pdf")
+    pdf(carpeta_preguntar.ruta, "ACTA.PDF")
+    pdf(carpeta_preguntar.ruta, ".oculto.pdf")
+    nombres = [r.name for r in preguntar.pendientes_sin_cifrar(carpeta_preguntar.ruta)]
+    assert sorted(nombres) == ["ACTA.PDF", "contrato_temp.pdf"]

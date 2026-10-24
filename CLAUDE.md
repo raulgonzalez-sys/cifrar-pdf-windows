@@ -10,8 +10,9 @@ contraseña (AES-256) los PDF que se sueltan en carpetas del Escritorio.
 
 La repo de Debian, `debian13-fisat`, es la **referencia de comportamiento**: allí
 viven el backend bash canónico (`archivos/fisat-cifrar-pdf`), la GUI canónica
-(`archivos/fisat-cifrar-pdf-gui`) y el plan de este porte
-(`PLAN_CIFRAR_PDF_WINDOWS.md`). Ante la duda de qué debe hacer algo, se mira allí.
+(`archivos/fisat-cifrar-pdf-gui`) y su guía (`.claude/rules/cifrar-pdf.md`). Ante
+la duda de qué debe hacer algo, se mira allí. El plan de este porte vive aquí,
+en `PLAN.md`.
 
 Quienes usan esto son **trabajadoras y trabajadores de la fundación** (técnicos/as,
 orientadores/as, coordinadores/as) haciendo inserción sociolaboral, no personal
@@ -129,6 +130,19 @@ técnico. Los mensajes se escriben para ellas.
 17. **`QToolBar` crea sus botones con `NoFocus`.** La barra entera quedaba
     fuera del recorrido del Tab, así que sin ratón no se llegaba a ninguna
     acción. Se les pone `TabFocus` a mano al construirla.
+18. **Cambiar la clave o el modo no reinicia el vigilante.** Pararlo rechaza
+    los diálogos abiertos, así que el PDF de OTRA carpeta que estaba
+    preguntando la contraseña acababa `SIN-CIFRAR_`. La clave y el modo se leen
+    al cifrar; al pasar a clave fija, `--gui-set-pass` deja el marcador
+    `barrer/<id>` y es el propio vigilante quien barre esa carpeta, en su único
+    hilo cifrador: nunca cifran dos procesos el mismo fichero. Solo añadir,
+    renombrar o quitar carpetas reinicia (`proceso.refrescar`). No se porta el
+    `SIN_CLAVE` de Debian (barrer cuando KWallet por fin responde): el
+    Administrador de credenciales no tiene ese retraso al iniciar sesión.
+19. **Solo los ocultos son nuestros.** El temporal propio es
+    `.<nombre>.<pid>_temp.<ext>` y `limpiar_temporales` solo borra ocultos: un
+    `contrato_temp.pdf` del usuario es un PDF más y se cifra. Ignorar o borrar
+    por el sufijo `_temp.pdf` se comía PDF de verdad.
 
 ## `gui.py` es un fork de la GUI de Debian
 
@@ -155,5 +169,5 @@ cifrado, el `.exe` construido) y que la ventana se construye sin pantalla. **No
 cubre** nada visual ni de sesión real: iconos, notificaciones del área de
 notificación, autoarranque al iniciar sesión, el aviso de SmartScreen, ni el
 antivirus corporativo. Todo eso se comprueba a mano en un equipo (ver la fase 5
-del plan en debian13-fisat) y así hay que decirlo al informar: «pasa el CI» no
-es «probado en un puesto».
+de `PLAN.md`) y así hay que decirlo al informar: «pasa el CI» no es «probado en
+un puesto».

@@ -105,3 +105,9 @@ def test_escribir_y_leer_el_modo():
     assert config.leer("informes").pregunta
     config.escribir("informes", "Informes", ruta, "fija")
     assert not config.leer("informes").pregunta
+
+
+@pytest.mark.parametrize("nombre", [".", ".."])
+def test_punto_y_dos_puntos(nombre):
+    """El texto es contrato --gui-*: idéntico al del bash."""
+    assert config.validar_nombre(nombre) == "El nombre no puede ser «.» ni «..»."

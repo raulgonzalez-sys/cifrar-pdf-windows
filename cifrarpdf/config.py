@@ -40,11 +40,7 @@ MODOS = (MODO_FIJA, MODO_PREGUNTAR)
 
 
 def normalizar_modo(modo: str | None) -> str:
-    """Solo hay dos modos; cualquier otra cosa (o nada) es «fija».
-
-    Una configuración escrita antes de que existieran los dos modos no lleva el
-    campo, y «fija» es justo el comportamiento que tenía.
-    """
+    """Solo hay dos modos; cualquier otra cosa (o nada) es «fija»."""
     return modo if modo in MODOS else MODO_FIJA
 
 
@@ -77,6 +73,8 @@ def validar_nombre(nombre: str) -> str | None:
             return f"El nombre no puede contener «{caracter}»."
         if ord(caracter) < 32:
             return "El nombre contiene caracteres no imprimibles."
+    if nombre in (".", ".."):
+        return "El nombre no puede ser «.» ni «..»."
     if nombre.endswith("."):
         return "El nombre no puede acabar en punto."
     if nombre.upper() in RESERVADOS or nombre.upper().split(".")[0] in RESERVADOS:

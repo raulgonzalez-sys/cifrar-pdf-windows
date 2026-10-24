@@ -64,11 +64,47 @@ def test_limpiar_temporales(tmp_path):
     assert [f.name for f in carpeta.iterdir()] == ["informe.pdf"]
 
 
-@pytest.mark.parametrize(("nombre", "temporal"), [
+def test_limpiar_temporales_solo_borra_los_ocultos(tmp_path):
+    """Un «contrato_temp.pdf» del usuario es un PDF más: nunca se borra."""
+    carpeta = tmp_path / "vigilada"
+    carpeta.mkdir()
+    (carpeta / ".a.123_temp.pdf").write_bytes(b"basura")
+    (carpeta / ".B.123_temp.PDF").write_bytes(b"basura")
+    (carpeta / "contrato_temp.pdf").write_bytes(b"%PDF-")
+    (carpeta / ".oculto.pdf").write_bytes(b"%PDF-")
+    cifrar.limpiar_temporales(carpeta)
+    assert sorted(f.name for f in carpeta.iterdir()) == [
+        ".oculto.pdf", "contrato_temp.pdf"]
+
+
+@pytest.mark.parametrize(("nombre", "oculto"), [
     (".informe.99_temp.pdf", True),
-    ("informe_temp.pdf", True),
     (".oculto.pdf", True),
+    ("informe_temp.pdf", False),
+    ("contrato_temp.pdf", False),
     ("informe.pdf", False),
 ])
-def test_deteccion_de_temporales(nombre, temporal):
-    assert cifrar.es_temporal(nombre) is temporal
+def test_es_oculto(nombre, oculto):
+    assert cifrar.es_oculto(nombre) is oculto
+
+
+def test_cifra_un_pdf_con_extension_en_mayusculas(tmp_path):
+    carpeta = tmp_path / "vigilada"
+    carpeta.mkdir()
+    ruta = pdf_de_prueba(carpeta / "INFORME.PDF")
+    assert cifrar.cifrar_en_sitio(ruta, CLAVE) is True
+    assert cifrar.ya_cifrado(ruta)
+    assert [f.name for f in carpeta.iterdir()] == ["INFORME.PDF"]
+
+
+def test_el_temporal_es_oculto_y_conserva_la_extension(tmp_path):
+    temporal = cifrar._temporal_para(tmp_path / "INFORME.PDF")
+    assert temporal.name.startswith(".INFORME.")
+    assert temporal.name.endswith("_temp.PDF")
+
+
+def test_un_pdf_ilegible_por_el_sistema_da_error_de_cifrado(tmp_path):
+    """Un OSError al abrir (en Windows, el fichero bloqueado por otro proceso)
+    no es un «fallo inesperado». Aquí lo provoca un fichero que no existe."""
+    with pytest.raises(cifrar.ErrorCifrado):
+        cifrar.ya_cifrado(tmp_path / "no-existe.pdf")
