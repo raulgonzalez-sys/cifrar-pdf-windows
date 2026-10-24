@@ -126,19 +126,30 @@ jobs:
             throw "listado tras el alta preguntando: $($campos -join '|')"
           }
 
+          #    El registro se lee compartido: el vigilante lo sigue escribiendo y
+          #    una lectura que no comparta escritura podría chocar con él.
+          function Contar-EnRegistro($texto) {
+            if (-not (Test-Path $log)) { return 0 }
+            $fs = [System.IO.File]::Open($log, 'Open', 'Read', 'ReadWrite')
+            try { $contenido = (New-Object System.IO.StreamReader($fs)).ReadToEnd() } finally { $fs.Dispose() }
+            return ([regex]::Matches($contenido, [regex]::Escape($texto))).Count
+          }
+
           #    Sin bandeja no hay a quién preguntar: el PDF se queda marcado
           #    SIN-CIFRAR_. Antes de soltarlo se espera a que el vigilante
           #    relanzado por el alta ya vigile la carpeta (esa línea del registro
-          #    se escribe con el observador en marcha).
+          #    se escribe con el observador en marcha), y un poco más: el hilo
+          #    del observador tarda un instante en empezar a recibir cambios.
           $vigila = $false
           foreach ($i in 1..60) {
-            if ((Test-Path $log) -and (Select-String -Path $log -SimpleMatch -Quiet -Pattern "no se pregunta hasta que se suelte un PDF")) { $vigila = $true; break }
+            if ((Contar-EnRegistro "no se pregunta hasta que se suelte un PDF") -gt 0) { $vigila = $true; break }
             Start-Sleep -Milliseconds 500
           }
           if (-not $vigila) {
             if (Test-Path $log) { Get-Content $log }
             throw "el vigilante no vigila la carpeta que pregunta en 30 s"
           }
+          Start-Sleep -Seconds 2
           $dirPregunta = "$env:CIFRARPDF_ESCRITORIO\Pregunta"
           Copy-Item "$env:RUNNER_TEMP\prueba.pdf" "$dirPregunta\informe.pdf"
           $marcado = "$dirPregunta\SIN-CIFRAR_informe.pdf"
@@ -154,7 +165,7 @@ jobs:
 
           #    Pasar a contraseña fija NO reinicia el vigilante: le pide que barra
           #    la carpeta, y el marcado se cifra y recupera su nombre.
-          $inicios = @(Select-String -Path $log -SimpleMatch -Pattern "Iniciando vigilancia").Count
+          $inicios = Contar-EnRegistro "Iniciando vigilancia"
           $fija = $clave | & $exe --gui-set-pass pregunta --modo fija
           if ($fija -ne "OK") { throw "paso a fija: '$fija'" }
           $barrido = $false
@@ -167,7 +178,7 @@ jobs:
             if (Test-Path $log) { Get-Content $log }
             throw "el paso a fija no cifró el PDF marcado en 30 s"
           }
-          $despues = @(Select-String -Path $log -SimpleMatch -Pattern "Iniciando vigilancia").Count
+          $despues = Contar-EnRegistro "Iniciando vigilancia"
           if ($despues -ne $inicios) {
             if (Test-Path $log) { Get-Content $log }
             throw "el paso a fija reinició el vigilante ($inicios -> $despues arranques)"

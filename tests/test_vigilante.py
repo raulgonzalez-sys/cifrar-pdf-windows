@@ -171,7 +171,7 @@ def test_el_lote_salta_el_pendiente_que_aun_se_escribe(
     assert cifrar.ya_cifrado(soltado), "el que disparó el diálogo se cifra"
     assert cifrar.ya_cifrado(listo)
     assert not cifrar.ya_cifrado(copiando), "lo cifrará su propio evento"
-    assert f"Lote: se omite, aún se escribe: {copiando}" in log.read_text(encoding="utf-8")
+    assert f"Lote: se omite, en uso por otro programa: {copiando}" in log.read_text(encoding="utf-8")
 
 
 def test_el_pendiente_omitido_del_lote_se_avisa(
@@ -196,3 +196,43 @@ def test_el_pendiente_omitido_del_lote_se_avisa(
     assert len(avisos) == 1, errores
     assert "no se ha cifrado" in avisos[0]
     assert "Ciérralo y vuelve a soltarlo" in avisos[0]
+
+
+def test_un_aviso_que_llega_mientras_lee_las_carpetas_no_se_pierde(
+        escritorio, sin_keyring, monkeypatch, log):
+    """El paso a fija llega justo cuando el vigilante ya leyó la carpeta en
+    «preguntar»: su aviso tiene que sobrevivir al arranque."""
+    ruta = escritorio / "P"
+    ruta.mkdir()
+    config.escribir("p", "P", ruta, "preguntar")
+    pdf(ruta, "SIN-CIFRAR_a.pdf")
+    original = vigilante._preparar_carpetas
+
+    def leer_y_pasar_a_fija():
+        mapa = original()
+        secreto.guardar("p", "contraseña-larga")
+        config.escribir("p", "P", ruta, "fija")
+        proceso.pedir_barrido("p")
+        return mapa
+
+    monkeypatch.setattr(vigilante, "_preparar_carpetas", leer_y_pasar_a_fija)
+    monkeypatch.setattr(vigilante, "_procesar", lambda ruta, mapa: None)
+    monkeypatch.setattr(vigilante, "_esperar_parada", lambda: 0)
+
+    assert vigilante._ejecutar() == 0
+    assert "Barrido a petición en «P»." in log.read_text(encoding="utf-8")
+
+
+def test_lo_ya_cifrado_no_espera_a_estar_completo(nominas, monkeypatch):
+    """Un barrido recorre carpetas llenas de PDF ya protegidos: esperar ~2 s
+    por cada uno retendría la cola minutos."""
+    carpeta, mapa = nominas
+    protegido = pdf(carpeta.ruta, "uno.pdf")
+    assert cifrar.cifrar_en_sitio(protegido, "contraseña-larga")
+    esperas = []
+    monkeypatch.setattr(espera, "esperar_archivo",
+                        lambda ruta, *a, **k: esperas.append(ruta) or True)
+
+    vigilante._procesar(protegido, mapa)
+
+    assert esperas == []

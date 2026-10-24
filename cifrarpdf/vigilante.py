@@ -102,7 +102,8 @@ def _barrer_por_aviso(cid: str, cola: queue.Queue[Path],
     """Aviso de barrido de la carpeta «cid»: encola sus PDF si sigue en «fija».
 
     Borrar el marcador hace de turno: si el aviso llega dos veces (el evento y
-    el repaso del arranque), solo barre quien consigue borrarlo.
+    el repaso del arranque), el segundo ya no lo encuentra y no barre. Si no
+    se puede borrar, se barre igual: barrer de más no hace daño.
     """
     try:
         (rutas.barrer_dir() / cid).unlink()
@@ -133,9 +134,23 @@ def _pdfs_visibles(carpeta: Path) -> list[Path]:
             and not cifrar.es_oculto(e.name)]
 
 
+def _ya_cifrado(ruta: Path) -> bool:
+    """Como `cifrar.ya_cifrado`, pero un PDF ilegible cuenta como «no»: ese
+    caso lo cuenta el intento de cifrado."""
+    try:
+        return cifrar.ya_cifrado(ruta)
+    except cifrar.ErrorCifrado:
+        return False
+
+
 def _procesar(ruta: Path, mapa: dict[str, config.Carpeta]) -> None:
     carpeta = _carpeta_de(ruta, mapa)
     if carpeta is None:
+        return
+    # Lo ya cifrado se descarta antes de esperar (~2 s por fichero), como el
+    # bash, que mira «qpdf --is-encrypted» antes que lsof: un barrido recorre
+    # carpetas llenas de PDF ya protegidos.
+    if not espera.bloqueado(ruta) and _ya_cifrado(ruta):
         return
     if not espera.esperar_archivo(ruta):
         notificar.error(
@@ -248,7 +263,7 @@ def _procesar_preguntando(ruta: Path, carpeta: config.Carpeta) -> None:
             # evento; si lo tiene abierto un visor, no habrá evento.
             if (os.path.normcase(pendiente.name) != os.path.normcase(ruta.name)
                     and espera.bloqueado(pendiente)):
-                rutas.log(f"Lote: se omite, aún se escribe: {pendiente}")
+                rutas.log(f"Lote: se omite, en uso por otro programa: {pendiente}")
                 omitidos.append(pendiente)
                 continue
             _cifrar_y_avisar(pendiente, clave)
@@ -406,13 +421,13 @@ def _ejecutar() -> int:
         return 0
 
     rutas.log("Iniciando vigilancia (multi-carpeta).")
+    # Los avisos de barrido pendientes los cubre el barrido inicial. Se borran
+    # ANTES de leer las carpetas: uno que llegue después se atiende abajo.
+    _borrar_marcadores()
     mapa = _preparar_carpetas()
     if not mapa:
         rutas.log("Ninguna carpeta utilizable: saliendo.")
         return 0
-
-    # Los avisos de barrido pendientes los cubre el barrido inicial de abajo.
-    _borrar_marcadores()
 
     cola: queue.Queue[Path] = queue.Queue()
     parar = threading.Event()

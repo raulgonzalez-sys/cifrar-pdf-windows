@@ -68,8 +68,8 @@ def test_limpiar_temporales_solo_borra_los_ocultos(tmp_path):
     """Un «contrato_temp.pdf» del usuario es un PDF más: nunca se borra."""
     carpeta = tmp_path / "vigilada"
     carpeta.mkdir()
-    (carpeta / ".x.123_temp.pdf").write_bytes(b"basura")
-    (carpeta / ".X.123_temp.PDF").write_bytes(b"basura")
+    (carpeta / ".a.123_temp.pdf").write_bytes(b"basura")
+    (carpeta / ".B.123_temp.PDF").write_bytes(b"basura")
     (carpeta / "contrato_temp.pdf").write_bytes(b"%PDF-")
     (carpeta / ".oculto.pdf").write_bytes(b"%PDF-")
     cifrar.limpiar_temporales(carpeta)
@@ -104,6 +104,7 @@ def test_el_temporal_es_oculto_y_conserva_la_extension(tmp_path):
 
 
 def test_un_pdf_ilegible_por_el_sistema_da_error_de_cifrado(tmp_path):
-    """Un fichero bloqueado por otro proceso (OSError) no es un «fallo inesperado»."""
+    """Un OSError al abrir (en Windows, el fichero bloqueado por otro proceso)
+    no es un «fallo inesperado». Aquí lo provoca un fichero que no existe."""
     with pytest.raises(cifrar.ErrorCifrado):
         cifrar.ya_cifrado(tmp_path / "no-existe.pdf")
