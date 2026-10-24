@@ -12,6 +12,10 @@ jobs:
   escritorio:
     runs-on: windows-latest
     timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        intento: [1, 2]
     steps:
       - uses: actions/checkout@v4
 
@@ -23,14 +27,25 @@ jobs:
       - name: Dependencias
         run: pip install -e ".[dev]" pywinauto==0.6.9
 
-      - name: Sonda de escritorio
+      - name: Construir los ejecutables
+        run: pyinstaller empaquetar/CifrarPDF.spec --noconfirm
+
+      - name: Conjunto de escritorio
         env:
           SALIDA: ${{ runner.temp }}\salida
-        run: python pruebas_escritorio/conducir.py sonda
+        run: python pruebas_escritorio/conducir.py conjunto dist\CifrarPDF
+
+      - name: Limpieza
+        if: always()
+        shell: pwsh
+        run: |
+          & "dist\CifrarPDF\CifrarPDF-cli.exe" --parar
+          Get-Process CifrarPDF* -ErrorAction SilentlyContinue | Format-Table Id, ProcessName, StartTime
+          Stop-Process -Name CifrarPDF -Force -ErrorAction SilentlyContinue
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: escritorio-${{ github.run_attempt }}
+          name: escritorio-${{ matrix.intento }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}\salida
           if-no-files-found: warn
