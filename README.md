@@ -156,9 +156,9 @@ asoma ninguna ventana negra).
 | `cifrarpdf/secreto.py` | Contraseña en el Administrador de credenciales; de reserva, fichero cifrado con DPAPI |
 | `cifrarpdf/cifrar.py` | Cifrado con pikepdf (AES-256, `R=6`), verificación y reemplazo con reintentos |
 | `cifrarpdf/espera.py` | Esperar a que el PDF esté completo (bloqueo + tamaño estable) |
-| `cifrarpdf/vigilante.py` | watchdog + hilo cifrador + icono en la bandeja |
+| `cifrarpdf/vigilante.py` | watchdog + hilo cifrador + icono en la bandeja; también barre una carpeta cuando se le pide (al pasar a contraseña fija) |
 | `cifrarpdf/preguntar.py` | Modo «preguntar cada vez»: diálogo, lote en memoria y marcado `SIN-CIFRAR_` |
-| `cifrarpdf/proceso.py` | Instancia única (mútex) y parada ordenada (evento con nombre) |
+| `cifrarpdf/proceso.py` | Instancia única (mútex), parada ordenada (evento con nombre) y aviso de barrido al vigilante |
 | `cifrarpdf/autostart.py` | Autoarranque por usuario en `HKCU\...\Run` |
 | `cifrarpdf/cli.py` | El contrato `--gui-*` — **idéntico al del backend bash de Debian** |
 | `gui.py` | La ventana. **Fork** de `archivos/fisat-cifrar-pdf-gui` de debian13-fisat: los cambios se portan a mano (ver `GUI_SYNC.md`) |
