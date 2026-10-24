@@ -1,0 +1,36 @@
+name: Escritorio (temporal)
+
+# TEMPORAL: prueba de escritorio real en Windows. No mergear.
+on:
+  push:
+    branches: [ccr-354f5a27-zxfpyi]
+    paths:
+      - ".github/workflows/escritorio.yml"
+      - "pruebas_escritorio/**"
+
+jobs:
+  escritorio:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Dependencias
+        run: pip install -e ".[dev]" pywinauto==0.6.9
+
+      - name: Sonda de escritorio
+        env:
+          SALIDA: ${{ runner.temp }}\salida
+        run: python pruebas_escritorio/conducir.py sonda
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: escritorio-${{ github.run_attempt }}
+          path: ${{ runner.temp }}\salida
+          if-no-files-found: warn
