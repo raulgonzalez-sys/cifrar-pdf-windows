@@ -8,7 +8,8 @@ puestos Debian queda a oscuras.
 
 Reparto de trabajo:
 
-- watchdog avisa de los ficheros nuevos y los deja en una cola;
+- watchdog avisa de los ficheros nuevos y los deja en una cola, junto con los
+  avisos de barrido de `proceso.pedir_barrido`;
 - un hilo trabajador espera a que cada PDF esté completo y lo cifra, para que
   un PDF grande no atasque la detección de los siguientes;
 - el hilo principal es el de Qt (icono, menú y notificaciones) y comprueba cada
@@ -63,6 +64,20 @@ class _Manejador(FileSystemEventHandler):
         self.cola.put(camino)
 
 
+class _ManejadorBarrido(FileSystemEventHandler):
+    """Mete en la misma cola los avisos de barrido (`proceso.pedir_barrido`).
+
+    Van a la cola de los PDF para que solo cifre el hilo trabajador.
+    """
+
+    def __init__(self, cola: queue.Queue[Path]) -> None:
+        self.cola = cola
+
+    def on_created(self, event) -> None:  # noqa: ANN001 — API de watchdog
+        if not event.is_directory:
+            self.cola.put(Path(os.fsdecode(event.src_path)))
+
+
 def _clave(ruta: Path) -> str:
     texto = os.path.normpath(str(ruta))
     return os.path.normcase(texto) if rutas.ES_WINDOWS else texto
@@ -71,6 +86,51 @@ def _clave(ruta: Path) -> str:
 def _carpeta_de(ruta: Path, mapa: dict[str, config.Carpeta]) -> config.Carpeta | None:
     """¿A qué carpeta configurada pertenece este fichero?"""
     return mapa.get(_clave(ruta.parent))
+
+
+def _atender(ruta: Path, cola: queue.Queue[Path],
+             mapa: dict[str, config.Carpeta]) -> None:
+    """Lo que saca de la cola el hilo trabajador: un PDF o un aviso de barrido."""
+    if _clave(ruta.parent) == _clave(rutas.barrer_dir()):
+        _barrer_por_aviso(ruta.name, cola, mapa)
+    else:
+        _procesar(ruta, mapa)
+
+
+def _barrer_por_aviso(cid: str, cola: queue.Queue[Path],
+                      mapa: dict[str, config.Carpeta]) -> None:
+    """Aviso de barrido de la carpeta «cid»: encola sus PDF si sigue en «fija».
+
+    Borrar el marcador hace de turno: si el aviso llega dos veces (el evento y
+    el repaso del arranque), solo barre quien consigue borrarlo.
+    """
+    try:
+        (rutas.barrer_dir() / cid).unlink()
+    except FileNotFoundError:
+        return
+    except OSError:
+        pass
+    for carpeta in mapa.values():
+        if carpeta.id != cid:
+            continue
+        actual = config.leer(cid)
+        if actual is None or actual.pregunta:
+            return
+        rutas.log(f"Barrido a petición en «{carpeta.nombre}».")
+        for entrada in _pdfs_visibles(carpeta.ruta):
+            cola.put(entrada)
+        return
+
+
+def _pdfs_visibles(carpeta: Path) -> list[Path]:
+    """Los PDF de la carpeta, sin distinguir mayúsculas y sin los ocultos."""
+    try:
+        entradas = sorted(carpeta.iterdir())
+    except OSError:
+        return []
+    return [e for e in entradas
+            if e.is_file() and e.suffix.lower() == ".pdf"
+            and not cifrar.es_oculto(e.name)]
 
 
 def _procesar(ruta: Path, mapa: dict[str, config.Carpeta]) -> None:
@@ -147,10 +207,8 @@ def _procesar_preguntando(ruta: Path, carpeta: config.Carpeta) -> None:
     # ya están todos en el disco y se puede ofrecer una sola contraseña.
     pendientes = preguntar.pendientes_sin_cifrar(carpeta.ruta)
 
-    # El texto del diálogo dice DÓNDE está el PDF y cuántos hay pendientes.
-    # Antes la carpeta solo aparecía en el título de la ventana (que se trunca
-    # y que mucha gente no lee) y el recuento del lote se mencionaba DESPUÉS de
-    # teclear la contraseña dos veces, así que se decidía a ciegas.
+    # El texto del diálogo dice dónde está el PDF y cuántos hay pendientes, antes
+    # de pedir nada: el título de la ventana se trunca.
     corto = preguntar.recortar_nombre(ruta.name)
     contexto = ""
     if len(pendientes) > 1:
@@ -183,8 +241,14 @@ def _procesar_preguntando(ruta: Path, carpeta: config.Carpeta) -> None:
         rutas.log(f"Lote de {len(pendientes)} PDF con una sola contraseña en "
                   f"«{carpeta.nombre}» (reuso {preguntar.REUSO_TTL:.0f} s).")
         for pendiente in pendientes:
-            if pendiente.is_file():
-                _cifrar_y_avisar(pendiente, clave)
+            if not pendiente.is_file():
+                continue
+            # Otro PDF que aún se está copiando: lo cifra su propio evento.
+            if (os.path.normcase(pendiente.name) != os.path.normcase(ruta.name)
+                    and espera.bloqueado(pendiente)):
+                rutas.log(f"Lote: se omite, aún se escribe: {pendiente}")
+                continue
+            _cifrar_y_avisar(pendiente, clave)
         return
 
     _cifrar_y_avisar(ruta, clave)
@@ -193,8 +257,8 @@ def _procesar_preguntando(ruta: Path, carpeta: config.Carpeta) -> None:
 def _avisar_sin_cifrar(ruta: Path, nombre_carpeta: str = "") -> None:
     """Deja constancia, en el nombre y en un aviso, de que NO se ha cifrado.
 
-    El nombre del fichero se recorta y se dice UNA sola vez: antes salía
-    entero y dos veces en el mismo aviso, que es lo que estiraba el cuadro.
+    El nombre se recorta y se dice una sola vez: entero y repetido estiraba el
+    cuadro.
     """
     corto = preguntar.recortar_nombre(ruta.name)
     if nombre_carpeta:
@@ -229,7 +293,7 @@ def _trabajador(cola: queue.Queue[Path], mapa: dict[str, config.Carpeta],
         except queue.Empty:
             continue
         try:
-            _procesar(ruta, mapa)
+            _atender(ruta, cola, mapa)
         except Exception as error:  # noqa: BLE001 — el vigilante no se cae por un PDF
             notificar.error("Error al cifrar PDF",
                             f"Fallo inesperado con «{ruta.name}»: {error}")
@@ -267,19 +331,33 @@ def _encolar_existentes(cola: queue.Queue[Path], mapa: dict[str, config.Carpeta]
     Las carpetas en modo «preguntar» se saltan a propósito: nadie quiere que
     al iniciar sesión le salten diálogos de contraseña. Lo que quedara dentro
     se recupera en el lote del próximo PDF que se suelte ahí.
+
+    Una carpeta fija sin contraseña se vigila igual pero no se barre: se barre
+    cuando se la pongan, por aviso (`proceso.pedir_barrido`).
     """
     for carpeta in mapa.values():
         if carpeta.pregunta:
             rutas.log(f"Sin barrido inicial en «{carpeta.nombre}»: "
                       "no se pregunta hasta que se suelte un PDF.")
             continue
-        try:
-            for entrada in sorted(carpeta.ruta.iterdir()):
-                if (entrada.is_file() and entrada.suffix.lower() == ".pdf"
-                        and not cifrar.es_oculto(entrada.name)):
-                    cola.put(entrada)
-        except OSError:
+        if not secreto.tiene_clave(carpeta.id):
+            rutas.log(f"Sin barrido inicial en «{carpeta.nombre}»: "
+                      "no tiene contraseña guardada.")
             continue
+        for entrada in _pdfs_visibles(carpeta.ruta):
+            cola.put(entrada)
+
+
+def _borrar_marcadores() -> None:
+    try:
+        marcadores = list(rutas.barrer_dir().iterdir())
+    except OSError:
+        return
+    for marcador in marcadores:
+        try:
+            marcador.unlink()
+        except OSError:
+            pass
 
 
 def _abrir_gestion() -> None:
@@ -321,6 +399,9 @@ def _ejecutar() -> int:
         rutas.log("Ninguna carpeta utilizable: saliendo.")
         return 0
 
+    # Los avisos de barrido pendientes los cubre el barrido inicial de abajo.
+    _borrar_marcadores()
+
     cola: queue.Queue[Path] = queue.Queue()
     parar = threading.Event()
     hilo = threading.Thread(target=_trabajador, args=(cola, mapa, parar),
@@ -331,9 +412,19 @@ def _ejecutar() -> int:
     manejador = _Manejador(cola)
     for carpeta in mapa.values():
         observador.schedule(manejador, str(carpeta.ruta), recursive=False)
+    barrer = rutas.barrer_dir()
+    observador.schedule(_ManejadorBarrido(cola), str(barrer), recursive=False)
     observador.start()
 
     _encolar_existentes(cola, mapa)
+
+    # Avisos que llegaron mientras arrancaba, antes de que vigilara el observador.
+    try:
+        pendientes = sorted(barrer.iterdir())
+    except OSError:
+        pendientes = []
+    for marcador in pendientes:
+        _barrer_por_aviso(marcador.name, cola, mapa)
 
     try:
         codigo = _esperar_parada()

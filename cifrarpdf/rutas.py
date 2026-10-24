@@ -55,6 +55,13 @@ def carpetas_dir() -> Path:
     return ruta
 
 
+def barrer_dir() -> Path:
+    """Avisos al vigilante: un fichero «<id>» pide barrer esa carpeta."""
+    ruta = config_dir() / "barrer"
+    ruta.mkdir(parents=True, exist_ok=True)
+    return ruta
+
+
 def datos_dir() -> Path:
     ruta = _de_entorno("CIFRARPDF_DATOS_DIR")
     if ruta is None:

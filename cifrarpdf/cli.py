@@ -188,13 +188,13 @@ def gui_set_pass(*argumentos: str) -> int:
 
     # Pasar a «preguntar» no es solo cambiar el modo: hay que BORRAR lo que
     # hubiera guardado, o quedaría una contraseña en el Administrador de
-    # credenciales que ya nadie usa. Y se refresca el vigilante en los dos
-    # casos, porque al arrancar decide por modo qué hace con cada carpeta.
+    # credenciales que ya nadie usa. El vigilante no se reinicia en ningún
+    # caso: lee la clave y el modo al cifrar.
     if modo == config.MODO_PREGUNTAR:
         config.escribir(cid, carpeta.nombre, carpeta.ruta, modo)
         secreto.borrar(cid)
         rutas.log(f"Modo «preguntar cada vez» activado: {carpeta.nombre}")
-        proceso.refrescar()
+        proceso.asegurar()
         print("OK")
         return 0
 
@@ -206,7 +206,9 @@ def gui_set_pass(*argumentos: str) -> int:
         return _err("No se pudo guardar la contraseña.")
     config.escribir(cid, carpeta.nombre, carpeta.ruta, config.MODO_FIJA)
     rutas.log(f"Contraseña actualizada: {carpeta.nombre}")
-    proceso.refrescar()
+    # Lo que ya hubiera dentro se cifra ahora: lo barre el vigilante.
+    proceso.pedir_barrido(cid)
+    proceso.asegurar()
     print("OK")
     return 0
 
@@ -236,6 +238,7 @@ def gui_remove_all(*opciones: str) -> int:
             if carpeta.ruta.is_dir():
                 shutil.rmtree(carpeta.ruta, ignore_errors=True)
     autostart.desactivar()
+    shutil.rmtree(rutas.barrer_dir(), ignore_errors=True)
     try:
         rutas.log_file().unlink()
     except OSError:

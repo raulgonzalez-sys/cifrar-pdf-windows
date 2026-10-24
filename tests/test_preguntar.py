@@ -353,7 +353,21 @@ def test_sin_barrido_inicial_en_modo_preguntar(carpeta_preguntar):
     assert cola.empty()
 
 
-def test_el_barrido_inicial_sigue_activo_en_modo_fija(escritorio):
+def test_el_barrido_inicial_sigue_activo_en_modo_fija(escritorio, sin_keyring):
+    import queue
+    ruta = escritorio / "Nóminas"
+    ruta.mkdir()
+    config.escribir("nominas", "Nóminas", ruta, "fija")
+    secreto.guardar("nominas", "contraseña-larga")
+    carpeta = config.leer("nominas")
+    pdf(ruta)
+    cola = queue.Queue()
+    vigilante._encolar_existentes(cola, {vigilante._clave(ruta): carpeta})
+    assert cola.qsize() == 1
+
+
+def test_sin_barrido_inicial_en_fija_sin_contrasena(escritorio, sin_keyring, log):
+    """Se vigila igual; se barrerá cuando le pongan la contraseña."""
     import queue
     ruta = escritorio / "Nóminas"
     ruta.mkdir()
@@ -362,7 +376,9 @@ def test_el_barrido_inicial_sigue_activo_en_modo_fija(escritorio):
     pdf(ruta)
     cola = queue.Queue()
     vigilante._encolar_existentes(cola, {vigilante._clave(ruta): carpeta})
-    assert cola.qsize() == 1
+    assert cola.empty()
+    assert ("Sin barrido inicial en «Nóminas»: no tiene contraseña guardada."
+            in log.read_text(encoding="utf-8"))
 
 
 def test_el_vigilante_ignora_los_marcados(escritorio):

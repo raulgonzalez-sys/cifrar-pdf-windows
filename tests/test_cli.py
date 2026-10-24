@@ -280,3 +280,40 @@ def test_modo_desconocido_cae_en_fija(capsys, monkeypatch, sin_keyring):
     entrada(monkeypatch, "contraseña-larga")
     assert cli.main(["--gui-add", "Informes", "--modo", "inventado"]) == 0
     assert config.leer("informes").modo == "fija"
+
+
+@pytest.fixture
+def llamadas(monkeypatch):
+    """Registra qué pide el backend al control del vigilante."""
+    vistas = []
+    monkeypatch.setattr(proceso, "refrescar", lambda: vistas.append("refrescar"))
+    monkeypatch.setattr(proceso, "asegurar", lambda: vistas.append("asegurar") or True)
+    monkeypatch.setattr(proceso, "pedir_barrido",
+                        lambda cid: vistas.append(f"barrer {cid}") or True)
+    return vistas
+
+
+def test_set_pass_en_fija_pide_barrido_sin_reiniciar(capsys, monkeypatch, sin_keyring, llamadas):
+    """La clave se lee al cifrar: basta con avisar al vigilante para que barra."""
+    cli.main(["--gui-add", "Informes", "--modo", "preguntar"])
+    llamadas.clear()
+
+    entrada(monkeypatch, "contraseña-larga")
+    assert cli.main(["--gui-set-pass", "informes", "--modo", "fija"]) == 0
+    assert llamadas == ["barrer informes", "asegurar"]
+
+
+def test_set_pass_en_preguntar_no_reinicia(monkeypatch, sin_keyring, llamadas):
+    entrada(monkeypatch, "contraseña-larga")
+    cli.main(["--gui-add", "Informes"])
+    llamadas.clear()
+
+    assert cli.main(["--gui-set-pass", "informes", "--modo", "preguntar"]) == 0
+    assert llamadas == ["asegurar"]
+
+
+def test_remove_all_borra_los_avisos_de_barrido(monkeypatch, sin_keyring):
+    from cifrarpdf import rutas
+    (rutas.barrer_dir() / "informes").touch()
+    assert cli.main(["--gui-remove-all"]) == 0
+    assert not (rutas.config_dir() / "barrer").exists()

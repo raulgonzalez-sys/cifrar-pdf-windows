@@ -2,6 +2,8 @@
 
 import time
 
+import pytest
+
 from cifrarpdf import proceso
 
 
@@ -26,3 +28,19 @@ def test_asegurar_sin_carpetas_no_lanza_nada(monkeypatch):
 
 def test_pedir_parada_sin_nadie_escuchando_no_falla():
     proceso.pedir_parada()
+
+
+def test_pedir_barrido_crea_el_marcador():
+    from cifrarpdf import rutas
+    marcador = rutas.barrer_dir() / "informes"
+    marcador.write_text("viejo", encoding="utf-8")
+    assert proceso.pedir_barrido("informes") is True
+    assert marcador.is_file()
+    assert marcador.read_bytes() == b""
+
+
+@pytest.mark.parametrize("cid", ["", ".", "..", ".oculto", "a/b", "a\\b", "../fuera"])
+def test_pedir_barrido_rechaza_ids_malos(cid):
+    from cifrarpdf import rutas
+    assert proceso.pedir_barrido(cid) is False
+    assert list(rutas.barrer_dir().iterdir()) == []
