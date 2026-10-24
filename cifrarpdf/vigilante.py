@@ -240,15 +240,27 @@ def _procesar_preguntando(ruta: Path, carpeta: config.Carpeta) -> None:
         _lote.guardar(carpeta.id, clave)
         rutas.log(f"Lote de {len(pendientes)} PDF con una sola contraseña en "
                   f"«{carpeta.nombre}» (reuso {preguntar.REUSO_TTL:.0f} s).")
+        omitidos: list[Path] = []
         for pendiente in pendientes:
             if not pendiente.is_file():
                 continue
-            # Otro PDF que aún se está copiando: lo cifra su propio evento.
+            # Bloqueado por otro proceso: si aún se copia, lo cifra su propio
+            # evento; si lo tiene abierto un visor, no habrá evento.
             if (os.path.normcase(pendiente.name) != os.path.normcase(ruta.name)
                     and espera.bloqueado(pendiente)):
                 rutas.log(f"Lote: se omite, aún se escribe: {pendiente}")
+                omitidos.append(pendiente)
                 continue
             _cifrar_y_avisar(pendiente, clave)
+        # En Windows un visor bloquea el PDF y no se distingue de una copia en
+        # curso: mejor un aviso de más que un PDF en claro sin decirlo.
+        for omitido in omitidos:
+            if omitido.is_file():
+                notificar.error(
+                    "Cifrar PDF",
+                    f"«{preguntar.recortar_nombre(omitido.name)}» sigue abierto "
+                    "en otro programa (o aún se copia) y no se ha cifrado.\n"
+                    "Ciérralo y vuelve a soltarlo en la carpeta.")
         return
 
     _cifrar_y_avisar(ruta, clave)

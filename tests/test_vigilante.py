@@ -172,3 +172,27 @@ def test_el_lote_salta_el_pendiente_que_aun_se_escribe(
     assert cifrar.ya_cifrado(listo)
     assert not cifrar.ya_cifrado(copiando), "lo cifrará su propio evento"
     assert f"Lote: se omite, aún se escribe: {copiando}" in log.read_text(encoding="utf-8")
+
+
+def test_el_pendiente_omitido_del_lote_se_avisa(
+        escritorio, sin_keyring, atendedor, monkeypatch, log):
+    """Un PDF abierto en un visor no genera evento: si no se avisa, queda en claro."""
+    from cifrarpdf import notificar
+    ruta = escritorio / "Informes"
+    ruta.mkdir()
+    config.escribir("informes", "Informes", ruta, "preguntar")
+    carpeta = config.leer("informes")
+    soltado = pdf(ruta, "uno.pdf")
+    abierto = pdf(ruta, "dos.pdf")
+    pdf(ruta, "tres.pdf")
+    monkeypatch.setattr(espera, "bloqueado", lambda r: r.name == "dos.pdf")
+    errores = []
+    monkeypatch.setattr(notificar, "error", lambda t, x: errores.append((t, x)))
+
+    vigilante._procesar_preguntando(soltado, carpeta)
+
+    assert not cifrar.ya_cifrado(abierto)
+    avisos = [x for _t, x in errores if "«dos.pdf»" in x]
+    assert len(avisos) == 1, errores
+    assert "no se ha cifrado" in avisos[0]
+    assert "Ciérralo y vuelve a soltarlo" in avisos[0]
