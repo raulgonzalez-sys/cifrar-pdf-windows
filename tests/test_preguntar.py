@@ -384,3 +384,11 @@ def test_la_oferta_de_lote_nombra_los_pdf(atendedor, carpeta_preguntar):
     oferta = next(t for tipo, t in atendedor.vistas if tipo == "confirmar")
     for nombre in ("uno.pdf", "dos.pdf", "tres.pdf"):
         assert nombre in oferta
+
+
+def test_pendientes_cuenta_los_temp_del_usuario_y_no_los_ocultos(carpeta_preguntar):
+    pdf(carpeta_preguntar.ruta, "contrato_temp.pdf")
+    pdf(carpeta_preguntar.ruta, "ACTA.PDF")
+    pdf(carpeta_preguntar.ruta, ".oculto.pdf")
+    nombres = [r.name for r in preguntar.pendientes_sin_cifrar(carpeta_preguntar.ruta)]
+    assert sorted(nombres) == ["ACTA.PDF", "contrato_temp.pdf"]

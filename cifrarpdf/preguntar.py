@@ -248,7 +248,7 @@ def pendientes_sin_cifrar(carpeta: Path) -> list[Path]:
     for entrada in entradas:
         if not entrada.is_file() or entrada.suffix.lower() != ".pdf":
             continue
-        if cifrar.es_temporal(entrada.name):
+        if cifrar.es_oculto(entrada.name):
             continue
         try:
             if cifrar.ya_cifrado(entrada):

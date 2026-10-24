@@ -16,6 +16,8 @@ import pikepdf
 
 from . import rutas
 
+# Final del temporal propio, comparado en minúsculas. Solo cuenta en un nombre
+# oculto: un «contrato_temp.pdf» del usuario es un PDF más y se cifra.
 SUFIJO_TEMP = "_temp.pdf"
 
 # Reintentos del reemplazo final. En Windows el bloqueo de ficheros es real: si
@@ -30,8 +32,9 @@ class ErrorCifrado(Exception):
     """Fallo con mensaje ya redactado para la persona que usa el equipo."""
 
 
-def es_temporal(nombre: str) -> bool:
-    return nombre.endswith(SUFIJO_TEMP) or nombre.startswith(".")
+def es_oculto(nombre: str) -> bool:
+    """Único filtro de «esto no es un PDF del usuario» (incluye el temporal propio)."""
+    return nombre.startswith(".")
 
 
 def ya_cifrado(ruta: Path) -> bool:
@@ -48,10 +51,16 @@ def ya_cifrado(ruta: Path) -> bool:
         return True
     except pikepdf.PdfError as error:
         raise ErrorCifrado(f"No se pudo leer el PDF: {error}") from error
+    except OSError as error:
+        # En Windows, sobre todo un fichero bloqueado por otro proceso: se
+        # trata como cualquier PDF ilegible y no corta el lote.
+        raise ErrorCifrado(f"No se pudo leer el PDF: {error}") from error
 
 
 def _temporal_para(destino: Path) -> Path:
-    return destino.with_name(f".{destino.stem}.{os.getpid()}{SUFIJO_TEMP}")
+    """Temporal oculto junto al original, con su misma extensión (.pdf o .PDF)."""
+    return destino.with_name(
+        f".{destino.stem}.{os.getpid()}_temp{destino.suffix}")
 
 
 def reemplazar(origen: Path, destino: Path) -> None:
@@ -130,7 +139,8 @@ def limpiar_temporales(carpeta: Path) -> None:
     """Borra restos de un cifrado interrumpido (corte de luz, cierre forzado)."""
     try:
         for entrada in carpeta.iterdir():
-            if entrada.is_file() and entrada.name.endswith(SUFIJO_TEMP):
+            if (entrada.is_file() and es_oculto(entrada.name)
+                    and entrada.name.lower().endswith(SUFIJO_TEMP)):
                 _limpiar(entrada)
     except OSError:
         pass

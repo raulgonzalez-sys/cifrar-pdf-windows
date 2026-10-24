@@ -52,7 +52,7 @@ class _Manejador(FileSystemEventHandler):
         if es_directorio:
             return
         camino = Path(os.fsdecode(ruta))
-        if camino.suffix.lower() != ".pdf" or cifrar.es_temporal(camino.name):
+        if camino.suffix.lower() != ".pdf" or cifrar.es_oculto(camino.name):
             return
         # Los marcados «SIN-CIFRAR_» se ignoran: ese nombre se lo pusimos
         # nosotros, y el renombrado cuenta como fichero movido a la carpeta —
@@ -276,7 +276,7 @@ def _encolar_existentes(cola: queue.Queue[Path], mapa: dict[str, config.Carpeta]
         try:
             for entrada in sorted(carpeta.ruta.iterdir()):
                 if (entrada.is_file() and entrada.suffix.lower() == ".pdf"
-                        and not cifrar.es_temporal(entrada.name)):
+                        and not cifrar.es_oculto(entrada.name)):
                     cola.put(entrada)
         except OSError:
             continue
