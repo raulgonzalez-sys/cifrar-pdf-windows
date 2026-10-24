@@ -33,6 +33,7 @@ jobs:
       - name: Conjunto de escritorio
         env:
           SALIDA: ${{ runner.temp }}\salida
+          PYTHONIOENCODING: utf-8
         run: python pruebas_escritorio/conducir.py conjunto dist\CifrarPDF
 
       - name: Limpieza

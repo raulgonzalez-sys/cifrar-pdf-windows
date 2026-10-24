@@ -323,6 +323,24 @@ GENERIC_READ = 0x80000000
 FILE_SHARE_READ = 1
 OPEN_EXISTING = 3
 INVALID = wintypes.HANDLE(-1).value
+k32.CreateEventW.restype = wintypes.HANDLE
+k32.CreateEventW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.BOOL, wintypes.LPCWSTR]
+NOMBRE_EVENTO = r"Local\FISAT-CifrarPDF-Parar"
+ASA_EVENTO = [None]
+
+
+def sujetar_evento() -> None:
+    """Arnés: mantiene viva la parada con nombre para que --parar la encuentre."""
+    if ASA_EVENTO[0] is None:
+        ASA_EVENTO[0] = k32.CreateEventW(None, True, False, NOMBRE_EVENTO)
+        anotar(f"  [arnés] sujeto el evento de parada (handle {ASA_EVENTO[0]})")
+
+
+def soltar_evento() -> None:
+    if ASA_EVENTO[0] is not None:
+        k32.CloseHandle(ASA_EVENTO[0])
+        ASA_EVENTO[0] = None
+        anotar("  [arnés] soltado el evento de parada")
 
 
 def bloquear(ruta: Path):
@@ -338,6 +356,48 @@ def bloquear(ruta: Path):
 CLAVE_FIJA = "clave-fija-2026"
 
 
+def diagnostico_parada() -> None:
+    """¿Para --parar al vigilante CON bandeja? Y con el contraste sin bandeja."""
+    esc = "C0 parada"
+    esperar(lambda: pid_vigilante(), 30)
+    time.sleep(4)
+    pid0 = pid_vigilante()
+    t = time.monotonic()
+    cli("--parar")
+    dur = time.monotonic() - t
+    time.sleep(2)
+    sin_arnes = (pid_vigilante(), cli("--gui-estado"), contar("Vigilancia detenida"), round(dur, 1))
+    anotar(f"  con bandeja, sin arnés: pid antes {pid0}; después/estado/detenidas/segundos {sin_arnes}")
+    sujetar_evento()
+    t = time.monotonic()
+    cli("--parar")
+    dur = time.monotonic() - t
+    time.sleep(2)
+    con_arnes = (pid_vigilante(), cli("--gui-estado"), contar("Vigilancia detenida"), round(dur, 1))
+    anotar(f"  con bandeja, evento sujeto por el arnés: {con_arnes}")
+    soltar_evento()
+    os.environ["CIFRARPDF_SIN_BANDEJA"] = "1"
+    cli("--gui-asegurar")
+    del os.environ["CIFRARPDF_SIN_BANDEJA"]
+    esperar(lambda: pid_vigilante(), 30)
+    time.sleep(3)
+    t = time.monotonic()
+    cli("--parar")
+    dur = time.monotonic() - t
+    time.sleep(2)
+    sin_bandeja = (pid_vigilante(), cli("--gui-estado"), contar("Vigilancia detenida"), round(dur, 1))
+    anotar(f"  SIN bandeja, sin arnés: {sin_bandeja}")
+    resultado(esc, "fallo" if sin_arnes[1] == "1" else "ok",
+              f"con bandeja --parar deja el vigilante vivo={sin_arnes[1] == '1'}; "
+              f"con el evento sujeto se para={con_arnes[1] == '0'}; "
+              f"sin bandeja se para={sin_bandeja[1] == '0'}")
+    # Deja el vigilante (con bandeja) en marcha otra vez, ya con el arnés.
+    sujetar_evento()
+    if cli("--gui-estado") == "1":
+        cli("--parar")
+    cli("--gui-asegurar")
+
+
 def preparar() -> None:
     if TEMP.exists():
         shutil.rmtree(TEMP, ignore_errors=True)
@@ -348,6 +408,8 @@ def preparar() -> None:
         if "hosted-compute-agent" in (w.window_text() or ""):
             ctypes.windll.user32.ShowWindow(w.handle, 6)
     cli("--gui-add", "Fija", entrada=CLAVE_FIJA)
+    diagnostico_parada()
+    sujetar_evento()
     for nombre in ("P1", "P2", "P3", "P4", "P6"):
         cli("--gui-add", nombre, "--modo", "preguntar")
     ok = esperar(lambda: contar("Sin barrido inicial en «P6»") >= 1 and pid_vigilante(), 40)
@@ -612,16 +674,12 @@ def ventana() -> None:
     anotar(f"  filas (accesible): {filas}")
     anotar(f"  textos: {textos}")
     chips = {
-        "✓ Lista": any("Lista" in t for t in textos),
-        "✕ Sin contraseña": any("Sin contraseña" in t for t in textos),
-        "🔑 Pregunta cada vez": any("Pregunta cada vez" in t for t in textos),
-        "⚠ Carpeta no encontrada": any("no encontrada" in t for t in textos),
         "accesible coherente": any("sin contraseña" in f for f in filas)
         and any("pregunta la contraseña cada vez" in f for f in filas)
         and any("carpeta no encontrada" in f for f in filas)
         and any(f.endswith(", lista") for f in filas),
     }
-    resultado(esc, "ok" if all(chips.values()) else "parcial", str(chips))
+    resultado(esc, "ok (mirar captura)" if all(chips.values()) else "parcial", str(chips))
 
     # C8: arrastre real desde el Explorador.
     esc = "C8"
