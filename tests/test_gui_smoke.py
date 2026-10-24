@@ -137,3 +137,100 @@ def test_el_dialogo_no_abre_ya_en_rojo(aplicacion):
     assert gui._SEMANTICO_CLARO["negativo"] not in dlg.aviso.styleSheet()
     assert gui._SEMANTICO_OSCURO["negativo"] not in dlg.aviso.styleSheet()
     dlg.close()
+
+
+def test_texto_accesible_sigue_el_orden_de_casos_del_chip(aplicacion):
+    """El lector de pantalla debe decir lo mismo que el chip de la fila."""
+    import gui
+    base = {"nombre": "Informes", "carpeta": r"C:\Escritorio\Informes",
+            "existe": False, "tiene_clave": True, "modo": "fija", "n": 0}
+    assert gui.texto_accesible({**base, "modo": "preguntar"}).endswith(
+        "carpeta no encontrada")
+    assert gui.texto_accesible({**base, "tiene_clave": False}).endswith(
+        "sin contraseña")
+
+
+def test_contar_pdf_cuenta_temp_visibles_y_no_ocultos(aplicacion, tmp_path):
+    """Un «contrato_temp.pdf» del usuario es un PDF más; los temporales del
+    backend son ocultos."""
+    import gui
+    for nombre in ("contrato_temp.pdf", ".x.123_temp.pdf", "INFORME.PDF"):
+        (tmp_path / nombre).write_bytes(b"%PDF-")
+    assert gui.contar_pdf(str(tmp_path)) == 2
+
+
+@pytest.mark.parametrize("nombre", [".", ".."])
+def test_el_dialogo_rechaza_los_nombres_punto(aplicacion, nombre):
+    from PyQt6.QtWidgets import QDialogButtonBox
+
+    import gui
+    dlg = gui.DialogoContrasena(pedir_nombre=True, nombre_def="Informes")
+    dlg.radio_preguntar.setChecked(True)
+    dlg.campo_nombre.setText(nombre)
+    assert dlg.aviso.text() == "El nombre no puede ser «.» ni «..»."
+    aceptar = dlg.botones.button(QDialogButtonBox.StandardButton.Ok)
+    assert not aceptar.isEnabled()
+    dlg.close()
+
+
+def _ventana_con_carpeta(monkeypatch, destino):
+    import gui
+    ventana = gui.Ventana()
+    monkeypatch.setattr(ventana, "_carpetas", lambda: [
+        {"id": "inf", "nombre": "Informes", "carpeta": str(destino)}])
+    avisos = {"error": [], "aviso": [], "backend": []}
+    monkeypatch.setattr(ventana, "_error", avisos["error"].append)
+    monkeypatch.setattr(ventana, "_aviso", avisos["aviso"].append)
+    monkeypatch.setattr(gui, "backend", avisos["backend"].append)
+    return ventana, avisos
+
+
+def test_soltar_un_pdf_oculto_avisa_y_no_lo_copia(
+        aplicacion, tmp_path, monkeypatch):
+    origen = tmp_path / "origen"
+    destino = tmp_path / "destino"
+    origen.mkdir()
+    destino.mkdir()
+    oculto = origen / ".secreto.pdf"
+    oculto.write_bytes(b"%PDF-")
+    ventana, avisos = _ventana_con_carpeta(monkeypatch, destino)
+
+    ventana._soltar_pdfs("inf", [str(oculto)])
+
+    assert list(destino.iterdir()) == []
+    assert len(avisos["aviso"]) == 1 and ".secreto.pdf" in avisos["aviso"][0]
+    assert avisos["backend"] == []
+    ventana.close()
+
+
+def test_soltar_con_fallo_de_copia_dice_cuantos_y_limpia_la_copia(
+        aplicacion, tmp_path, monkeypatch):
+    import shutil
+
+    origen = tmp_path / "origen"
+    destino = tmp_path / "destino"
+    origen.mkdir()
+    destino.mkdir()
+    bueno = origen / "bueno.pdf"
+    malo = origen / "malo.pdf"
+    bueno.write_bytes(b"%PDF-")
+    malo.write_bytes(b"%PDF-")
+    ventana, avisos = _ventana_con_carpeta(monkeypatch, destino)
+    copiar_real = shutil.copy2
+
+    def copiar(origen_, destino_):
+        if os.path.basename(origen_) == "malo.pdf":
+            Path(destino_).write_bytes(b"%PD")  # copia a medias
+            raise OSError(28, "No queda espacio en el dispositivo")
+        return copiar_real(origen_, destino_)
+
+    monkeypatch.setattr(shutil, "copy2", copiar)
+
+    ventana._soltar_pdfs("inf", [str(bueno), str(malo)])
+
+    assert sorted(p.name for p in destino.iterdir()) == ["bueno.pdf"]
+    assert len(avisos["error"]) == 1
+    assert "Copiados 1 de 2" in avisos["error"][0]
+    assert "malo.pdf" in avisos["error"][0]
+    assert avisos["backend"] == [["--gui-asegurar"]]
+    ventana.close()

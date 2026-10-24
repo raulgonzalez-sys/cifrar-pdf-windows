@@ -186,9 +186,8 @@ def icono_carpeta(ruta, existe):
         if nombre:
             if os.path.isabs(nombre) and os.path.exists(nombre):
                 # QIcon(ruta) NUNCA es nulo aunque el fichero no se pueda
-                # decodificar: Qt lo carga en diferido, así que isNull() decía
-                # que sí valía y luego pixmap() salía vacío. Quien decide es
-                # el QPixmap.
+                # decodificar (Qt lo carga en diferido): quien decide es el
+                # QPixmap.
                 if not QPixmap(nombre).isNull():
                     return QIcon(nombre)
             elif QIcon.hasThemeIcon(nombre):
@@ -237,28 +236,30 @@ def texto_accesible(fila):
     n = fila.get("n", 0)
     if fila["existe"] and n > 0:
         partes.append(f"{n} PDF")
-    if not fila["existe"]:
-        partes.append("carpeta no encontrada")
-    elif fila.get("modo") == "preguntar":
-        partes.append("pregunta la contraseña cada vez")
+    # Mismo orden de casos que el chip de la fila (_fila_widget).
+    if fila.get("modo") == "preguntar":
+        if not fila["existe"]:
+            partes.append("carpeta no encontrada")
+        else:
+            partes.append("pregunta la contraseña cada vez")
     elif not fila["tiene_clave"]:
         partes.append("sin contraseña")
+    elif not fila["existe"]:
+        partes.append("carpeta no encontrada")
     else:
         partes.append("lista")
     return ", ".join(partes)
 
 
 def contar_pdf(carpeta):
-    """Cuenta los PDF de una carpeta, omitiendo los temporales del backend
-    (*_temp.pdf y los ocultos «.<algo>»). Devuelve 0 ante cualquier error."""
+    """Cuenta los PDF de una carpeta, omitiendo los ocultos «.<algo>» (entre
+    ellos los temporales del backend). Devuelve 0 ante cualquier error."""
     n = 0
     try:
         with os.scandir(carpeta) as it:
             for entrada in it:
                 nombre = entrada.name
                 if nombre.startswith("."):
-                    continue
-                if nombre.endswith("_temp.pdf"):
                     continue
                 if nombre.lower().endswith(".pdf") and entrada.is_file():
                     n += 1
@@ -268,10 +269,8 @@ def contar_pdf(carpeta):
 
 
 # ── Capa de color ──────────────────────────────────────────────────────
-# Todo el color de la ventana pasa por aquí. Antes cada sitio decidía por su
-# cuenta (un «palette(mid)», un hex suelto, el mismo «lightness() < 128»
-# duplicado en dos funciones) y el resultado eran textos a 2:1 de contraste
-# y colores que no se recalculaban al cambiar de tema.
+# Todo el color de la ventana pasa por aquí, para que el contraste sea el
+# adecuado y los colores se recalculen al cambiar de tema.
 
 def _luminancia(color):
     """Luminancia relativa WCAG de un QColor (0 = negro, 1 = blanco)."""
@@ -444,12 +443,9 @@ class IndicadorVigilante(QLabel):
     """Estado del vigilante: SIEMPRE con texto y con un glifo distinto por
     estado, nunca solo con color.
 
-    Antes era un punto de color que únicamente se explicaba al pasar el ratón
-    por encima, y fallaba por tres lados a la vez: el texto no se alcanzaba
-    con el teclado ni lo leía un lector de pantalla; el punto medía unos
-    pocos píxeles en una esquina; y «activo» (verde) y «detenido» (rojo) se
-    convierten en el MISMO tono oliva bajo deuteranopía (1.0:1 entre sí) —
-    justo el par que dice si tus PDF se están cifrando.
+    «activo» (verde) y «detenido» (rojo) se convierten en el MISMO tono oliva
+    bajo deuteranopía (1.0:1 entre sí), y son justo el par que dice si los PDF
+    se están cifrando; el texto además lo lee un lector de pantalla.
     """
 
     GLIFOS = {"activo": "✓", "detenido": "✕", "inactivo": "•"}
@@ -632,6 +628,8 @@ class DialogoContrasena(QDialog):
                 problema = "Escribe un nombre para la carpeta."
             elif "/" in nombre:
                 problema = "El nombre no puede contener «/»."
+            elif nombre in (".", ".."):
+                problema = "El nombre no puede ser «.» ni «..»."
         if not problema and self.modo() == "preguntar":
             # No hay contraseña que validar: se pedirá al cifrar.
             self.botones.button(
@@ -908,10 +906,9 @@ class Ventana(QMainWindow):
             tema("edit-delete-shred", "edit-clear-all", "trash-empty"),
             "Quitar todas", self)
         self.act_quitar_todas.triggered.connect(self.quitar_todas)
-        # Con atajo y registrada en la ventana: es una acción DESTRUCTIVA que
-        # no tenía ninguno, no estaba en el menú contextual y vive en la barra
-        # (cuyos botones Qt crea sin foco), así que no había forma de llegar a
-        # ella sin ratón.
+        # Con atajo y registrada en la ventana: es destructiva y vive en la
+        # barra (cuyos botones Qt crea sin foco), así que sin esto no se
+        # alcanzaría sin ratón.
         self._configurar_accion(
             self.act_quitar_todas, QKeySequence("Ctrl+Shift+Del"),
             "Quitar todas las carpetas de cifrado")
@@ -936,9 +933,8 @@ class Ventana(QMainWindow):
     def _configurar_accion(self, accion, atajo, ayuda):
         if atajo is not None:
             accion.setShortcut(atajo)
-        # Poner un tooltip propio pisa el automático de Qt, que habría añadido
-        # el atajo entre paréntesis: sin esto los atajos solo se descubrían
-        # abriendo el menú contextual, y ni el tooltip los decía.
+        # Un tooltip propio pisa el automático de Qt, que habría añadido el
+        # atajo entre paréntesis: se añade aquí para que el tooltip lo diga.
         tecla = accion.shortcut().toString(
             QKeySequence.SequenceFormat.NativeText)
         accion.setToolTip(f"{ayuda} ({tecla})" if tecla else ayuda)
@@ -963,10 +959,9 @@ class Ventana(QMainWindow):
         self.addToolBar(barra)
 
         # Las tres secundarias, solo icono: con texto, las ocho acciones
-        # sumaban más ancho del que tenía la ventana y Qt escondía las
-        # últimas tras el botón de desbordamiento «»» — lo primero que veía
-        # la trabajadora era una barra amputada. Conservan tooltip, atajo y
-        # nombre accesible (sale del texto de la acción).
+        # sumarían más ancho que la ventana y Qt escondería las últimas tras el
+        # botón de desbordamiento. Conservan tooltip, atajo y nombre accesible
+        # (sale del texto de la acción).
         for accion in (self.act_quitar_todas, self.act_registro,
                        self.act_refrescar):
             boton = barra.widgetForAction(accion)
@@ -1253,10 +1248,7 @@ class Ventana(QMainWindow):
     def _menu_contextual(self, pos):
         # Con la tecla Menú (o Shift+F10) el evento NO trae la posición del
         # cursor —Qt usa el centro del widget—, así que itemAt() no encuentra
-        # fila. Antes eso hacía una de dos cosas malas: o el menú no salía, o
-        # salía y setCurrentItem MOVÍA la selección a la fila que hubiera en el
-        # centro de la lista, con lo que el «Quitar» siguiente iba sobre otra
-        # carpeta.
+        # fila: hay que actuar sobre la seleccionada, sin moverla.
         item = self.lista.itemAt(pos)
         if item is not None:
             # Clic derecho sobre una fila: la selección sigue al clic.
@@ -1291,8 +1283,14 @@ class Ventana(QMainWindow):
             return
 
         copiados = 0
+        fallidos = []
+        ocultos = []
         for ruta in rutas:
             if not ruta.lower().endswith(".pdf") or not os.path.isfile(ruta):
+                continue
+            # El vigilante ignora los ocultos: copiado, se quedaría sin cifrar.
+            if os.path.basename(ruta).startswith("."):
+                ocultos.append(os.path.basename(ruta))
                 continue
             destino = os.path.join(carpeta, os.path.basename(ruta))
             if os.path.abspath(ruta) == os.path.abspath(destino):
@@ -1301,11 +1299,36 @@ class Ventana(QMainWindow):
             try:
                 shutil.copy2(ruta, destino)
                 copiados += 1
-            except OSError:
-                pass
+            except OSError as e:
+                # _ruta_unica dio una ruta libre: lo que haya es la copia a medias.
+                try:
+                    os.remove(destino)
+                except OSError:
+                    pass
+                fallidos.append(f"{os.path.basename(ruta)}: "
+                                f"{e.strerror or e}")
 
         if copiados:
             backend(["--gui-asegurar"])
+        if fallidos:
+            total = copiados + len(fallidos)
+            lista = "\n".join(f"• {f}" for f in fallidos[:5])
+            if len(fallidos) > 5:
+                lista += f"\n… y {len(fallidos) - 5} más"
+            self._error(
+                f"Copiados {copiados} de {total} PDF a «{nombre}».\n\n"
+                f"No se pudieron copiar:\n{lista}")
+        if ocultos:
+            lista = "\n".join(f"• {f}" for f in ocultos[:5])
+            if len(ocultos) > 5:
+                lista += f"\n… y {len(ocultos) - 5} más"
+            self._aviso(
+                "No se copian los PDF ocultos (su nombre empieza por «.»): "
+                "no se cifrarían. Quítales el punto del principio y vuelve "
+                f"a soltarlos.\n\n{lista}")
+        if fallidos or ocultos:
+            return
+        if copiados:
             s = "s" if copiados > 1 else ""
             self.statusBar().showMessage(
                 f"Copiado{s} {copiados} PDF a «{nombre}» — "
@@ -1386,10 +1409,8 @@ class Ventana(QMainWindow):
                 widget._lbl_contador = contador  # color según selección
         h.addWidget(self._columna(ancho_contador, contador), 0, centrado)
 
-        # Chip de estado, SIEMPRE presente. Antes «todo bien» se comunicaba
-        # por ausencia de chip, que es indistinguible de «aún no lo he
-        # comprobado»; y error y aviso compartían el glifo ⚠, con lo que solo
-        # los separaba el tono del pastel de fondo.
+        # Chip de estado, SIEMPRE presente (la ausencia de chip no distingue
+        # «todo bien» de «sin comprobar»), con un glifo distinto por estado.
         texto_estado, clave = "✓  Lista", "ok"
         if fila.get("modo") == "preguntar":
             if not fila["existe"]:
@@ -1512,10 +1533,13 @@ class Ventana(QMainWindow):
         if not os.path.isdir(fila["carpeta"]):
             self._error("La carpeta ya no existe en el disco.")
             return
-        if ES_WINDOWS:
-            os.startfile(fila["carpeta"])
-        else:
-            subprocess.Popen(["xdg-open", fila["carpeta"]])
+        try:
+            if ES_WINDOWS:
+                os.startfile(fila["carpeta"])
+            else:
+                subprocess.Popen(["xdg-open", fila["carpeta"]])
+        except OSError as e:
+            self._error(f"No se pudo abrir la carpeta:\n{e.strerror or e}")
 
     def quitar(self):
         fila = self.fila_seleccionada()
