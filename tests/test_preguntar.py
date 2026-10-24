@@ -101,12 +101,19 @@ def test_marcar_numera_si_el_nombre_esta_ocupado(escritorio):
     (escritorio / "SIN-CIFRAR_informe.pdf").write_bytes(b"%PDF-")
     fichero = escritorio / "informe.pdf"
     fichero.write_bytes(b"%PDF-")
-    assert preguntar.marcar_sin_cifrar(fichero).name == "SIN-CIFRAR_2_informe.pdf"
+    assert preguntar.marcar_sin_cifrar(fichero).name == "SIN-CIFRAR_informe (2).pdf"
+
+
+def test_ruta_libre(escritorio):
+    assert preguntar.ruta_libre(escritorio, "INFORME.PDF") == escritorio / "INFORME.PDF"
+    (escritorio / "INFORME.PDF").write_bytes(b"%PDF-")
+    (escritorio / "INFORME (2).PDF").write_bytes(b"%PDF-")
+    assert preguntar.ruta_libre(escritorio, "INFORME.PDF").name == "INFORME (3).PDF"
 
 
 @pytest.mark.parametrize(("marcado", "limpio"), [
     ("SIN-CIFRAR_informe.pdf", "informe.pdf"),
-    ("SIN-CIFRAR_2_informe.pdf", "informe.pdf"),
+    ("SIN-CIFRAR_2024_acta.pdf", "2024_acta.pdf"),
     ("informe.pdf", "informe.pdf"),
 ])
 def test_limpiar_prefijo(escritorio, marcado, limpio):
@@ -116,10 +123,20 @@ def test_limpiar_prefijo(escritorio, marcado, limpio):
 
 
 def test_limpiar_prefijo_no_pisa_un_fichero_existente(escritorio):
-    (escritorio / "informe.pdf").write_bytes(b"otro")
+    otro = escritorio / "informe.pdf"
+    otro.write_bytes(b"otro")
     fichero = escritorio / "SIN-CIFRAR_informe.pdf"
     fichero.write_bytes(b"%PDF-")
+    assert preguntar.limpiar_prefijo(fichero).name == "informe (2).pdf"
+    assert otro.read_bytes() == b"otro"
+    assert not fichero.exists()
+
+
+def test_limpiar_prefijo_no_deja_un_nombre_oculto(escritorio):
+    fichero = escritorio / "SIN-CIFRAR_.x.pdf"
+    fichero.write_bytes(b"%PDF-")
     assert preguntar.limpiar_prefijo(fichero) == fichero
+    assert fichero.exists()
 
 
 # --- Lote --------------------------------------------------------------------
@@ -185,6 +202,25 @@ def test_contrasena_corta_no_se_acepta(atendedor):
                for tipo, texto in atendedor.vistas)
 
 
+def test_tres_contrasenas_cortas_lo_dicen_asi(atendedor):
+    atendedor.respuestas = ["corta", "corta", "corta"]
+    clave, motivo = preguntar.pedir_clave_confirmada("t", "x")
+    assert clave is None
+    assert motivo == preguntar.CORTA
+    assert preguntar.texto_motivo(motivo) == (
+        f"La contraseña era demasiado corta (mínimo {secreto.MIN_CLAVE} caracteres).")
+
+
+def test_el_motivo_es_el_del_ultimo_fallo(atendedor):
+    atendedor.respuestas = ["corta", "corta",
+                            "contraseña-larga", "otra-distinta"]
+    assert preguntar.pedir_clave_confirmada("t", "x") == (None, preguntar.NO_COINCIDEN)
+
+    atendedor.respuestas = ["contraseña-larga", "otra-distinta",
+                            "contraseña-larga", "otra-distinta", "corta"]
+    assert preguntar.pedir_clave_confirmada("t", "x") == (None, preguntar.CORTA)
+
+
 def test_cancelar_devuelve_nada(atendedor):
     atendedor.respuestas = [None]
     assert preguntar.pedir_clave_confirmada("t", "x") == (None, preguntar.CANCELADO)
@@ -197,7 +233,7 @@ def test_caducar_no_es_lo_mismo_que_cancelar(atendedor):
 
 
 def test_tres_veces_sin_coincidir_lo_dice_asi(atendedor):
-    """Y NO «no has introducido ninguna contraseña», que era la mentira."""
+    """Y no «no has introducido ninguna contraseña»."""
     atendedor.respuestas = ["contraseña-larga", "otra-distinta"] * 3
     clave, motivo = preguntar.pedir_clave_confirmada("t", "x")
     assert clave is None
@@ -342,16 +378,21 @@ def test_el_vigilante_ignora_los_marcados(escritorio):
 
 
 def test_el_aviso_del_ultimo_intento_dice_la_verdad(atendedor, carpeta_preguntar):
-    """Tres parejas que no coinciden no son «no has escrito ninguna».
-
-    Era el mensaje que salía antes en los tres casos, y acusaba de no haber
-    escrito nada a quien acababa de teclear seis veces.
-    """
+    """Tres parejas que no coinciden no son «no has escrito ninguna»."""
     fichero = pdf(carpeta_preguntar.ruta)
     atendedor.respuestas = ["contraseña-larga", "otra-distinta"] * 3 + [None]
     vigilante._procesar_preguntando(fichero, carpeta_preguntar)
     avisos = [t for tipo, t in atendedor.vistas if tipo == "avisar"]
     assert any("no coincidían" in t and "última vez" in t for t in avisos)
+
+
+def test_el_aviso_del_ultimo_intento_dice_que_era_corta(atendedor, carpeta_preguntar):
+    fichero = pdf(carpeta_preguntar.ruta)
+    atendedor.respuestas = ["corta"] * 3 + [None]
+    vigilante._procesar_preguntando(fichero, carpeta_preguntar)
+    avisos = [t for tipo, t in atendedor.vistas if tipo == "avisar"]
+    texto = preguntar.texto_motivo(preguntar.CORTA)
+    assert any(t.startswith(texto) and "última vez" in t for t in avisos)
 
 
 def test_el_aviso_distingue_el_tiempo_agotado(atendedor, carpeta_preguntar):

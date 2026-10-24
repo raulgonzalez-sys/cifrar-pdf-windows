@@ -20,6 +20,7 @@ tubería, ni fichero temporal, ni línea de órdenes.
 
 from __future__ import annotations
 
+import os
 import threading
 import time
 from dataclasses import dataclass, field
@@ -43,22 +44,24 @@ REUSO_TTL = 120.0
 INTENTOS = 3
 
 # Por qué no hay contraseña. Se distinguen para poder decir la verdad en el
-# aviso: con una sola causa, el mensaje acusaba de «no has introducido ninguna
-# contraseña» a quien acababa de escribir seis que no coincidían.
+# aviso.
 CANCELADO = "cancelado"
 CADUCADO = "caducado"
 NO_COINCIDEN = "no_coinciden"
+CORTA = "corta"
 
 MOTIVOS = {
     CANCELADO: "Se ha cancelado la contraseña.",
     CADUCADO: "Han pasado {minutos} minutos sin respuesta.",
     NO_COINCIDEN: "Las contraseñas que has escrito no coincidían.",
+    CORTA: "La contraseña era demasiado corta (mínimo {minimo} caracteres).",
 }
 
 
 def texto_motivo(motivo: str) -> str:
     plantilla = MOTIVOS.get(motivo, MOTIVOS[CANCELADO])
-    return plantilla.format(minutos=int(ESPERA_PREGUNTA // 60))
+    return plantilla.format(minutos=int(ESPERA_PREGUNTA // 60),
+                            minimo=secreto.MIN_CLAVE)
 
 
 def recortar_nombre(nombre: str, maximo: int = 48) -> str:
@@ -161,15 +164,17 @@ def pedir_clave_confirmada(titulo: str, texto: str) -> tuple[str | None, str | N
     cifrada, así que una errata dejaría un PDF que no se puede abrir nunca.
 
     Devuelve (clave, motivo). Con la clave puesta, el motivo es None; si no,
-    dice POR QUÉ no la hay: cancelada, sin respuesta a tiempo, o nunca
-    llegaron a coincidir.
+    dice POR QUÉ no la hay: cancelada, sin respuesta a tiempo, o el último
+    intento fue demasiado corto o no coincidía.
     """
+    causa = NO_COINCIDEN
     for _ in range(INTENTOS):
         primera, caducada = pedir_clave(titulo, texto)
         if not primera:
             return None, (CADUCADO if caducada else CANCELADO)
         problema = secreto.validar_clave(primera)
         if problema:
+            causa = CORTA
             avisar(titulo, f"Contraseña no válida:\n{problema}")
             continue
         segunda, caducada = pedir_clave(
@@ -178,10 +183,11 @@ def pedir_clave_confirmada(titulo: str, texto: str) -> tuple[str | None, str | N
             return None, (CADUCADO if caducada else CANCELADO)
         if primera == segunda:
             return primera, None
+        causa = NO_COINCIDEN
         avisar(titulo,
                "Las contraseñas que has escrito no coincidían. "
                "Vamos a repetirlo.")
-    return None, NO_COINCIDEN
+    return None, causa
 
 
 # --- Lote --------------------------------------------------------------------
@@ -261,19 +267,30 @@ def pendientes_sin_cifrar(carpeta: Path) -> list[Path]:
     return encontrados
 
 
+def ruta_libre(carpeta: Path, nombre: str) -> Path:
+    """«carpeta/nombre» si está libre; si no, «raíz (2).ext», «raíz (3).ext»…
+
+    La extensión se conserva tal cual (también «.PDF»). Mismo criterio que
+    `ruta_libre` del bash y `_ruta_unica` de la ventana.
+    """
+    destino = carpeta / nombre
+    raiz, extension = os.path.splitext(nombre)
+    numero = 2
+    while destino.exists():
+        destino = carpeta / f"{raiz} ({numero}){extension}"
+        numero += 1
+    return destino
+
+
 def marcar_sin_cifrar(ruta: Path) -> Path:
     """Renombra a «SIN-CIFRAR_…» el PDF que se quedó sin proteger.
 
     Nunca se marca dos veces (el prefijo se apilaría), y si el nombre marcado
-    ya está ocupado se numera. Devuelve la ruta resultante.
+    ya está ocupado se numera con `ruta_libre`. Devuelve la ruta resultante.
     """
     if es_marcado(ruta.name):
         return ruta
-    destino = ruta.with_name(f"{PREFIJO_SIN_CIFRAR}{ruta.name}")
-    numero = 2
-    while destino.exists():
-        destino = ruta.with_name(f"{PREFIJO_SIN_CIFRAR}{numero}_{ruta.name}")
-        numero += 1
+    destino = ruta_libre(ruta.parent, f"{PREFIJO_SIN_CIFRAR}{ruta.name}")
     try:
         ruta.rename(destino)
     except OSError as error:
@@ -285,21 +302,17 @@ def marcar_sin_cifrar(ruta: Path) -> Path:
 def limpiar_prefijo(ruta: Path) -> Path:
     """Devuelve su nombre limpio a un PDF marcado que ya se ha cifrado bien.
 
-    Si el nombre limpio está ocupado se deja como está: renombrar encima
-    borraría el fichero de otra persona.
+    Se quita solo el prefijo exacto: los dígitos del nombre original no se
+    tocan. Si el nombre limpio está ocupado se usa `ruta_libre`, nunca se
+    escribe encima del fichero de otra persona. Un resto vacío u oculto se deja
+    como está: el vigilante no vería un PDF oculto.
     """
     if not es_marcado(ruta.name):
         return ruta
     limpio = ruta.name[len(PREFIJO_SIN_CIFRAR):]
-    # El sufijo numérico que añade marcar_sin_cifrar ante una colisión.
-    partes = limpio.split("_", 1)
-    if len(partes) == 2 and partes[0].isdigit():
-        limpio = partes[1]
-    if not limpio:
+    if not limpio or cifrar.es_oculto(limpio):
         return ruta
-    destino = ruta.with_name(limpio)
-    if destino.exists():
-        return ruta
+    destino = ruta_libre(ruta.parent, limpio)
     try:
         ruta.rename(destino)
     except OSError:
