@@ -581,6 +581,11 @@ def _bucle_con_bandeja() -> int:
     abiertos = []
 
     def salir() -> None:
+        # Primero se da de baja quien atiende diálogos y avisos: lo siguiente
+        # que pida el hilo cifrador iría a un bucle que ya no despacha y el
+        # proceso saldría con el PDF en claro, sin marcar.
+        preguntar.registrar_atendedor(None)
+        notificar.registrar_emisor(None)
         for dialogo in list(abiertos):
             dialogo.reject()
         aplicacion.quit()
