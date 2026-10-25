@@ -234,3 +234,22 @@ def test_soltar_con_fallo_de_copia_dice_cuantos_y_limpia_la_copia(
     assert "malo.pdf" in avisos["error"][0]
     assert avisos["backend"] == [["--gui-asegurar"]]
     ventana.close()
+
+
+def test_los_separadores_de_la_barra_no_reciben_foco_con_tab(aplicacion):
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtWidgets import QToolBar
+
+    import gui
+    ventana = gui.Ventana()
+    barra = ventana.findChild(QToolBar)
+    separadores = [a for a in barra.actions() if a.isSeparator()]
+    assert separadores, "la barra debería tener separadores"
+    for accion in separadores:
+        widget = barra.widgetForAction(accion)
+        assert widget.focusPolicy() == Qt.FocusPolicy.NoFocus
+    for accion in barra.actions():
+        if not accion.isSeparator():
+            assert barra.widgetForAction(accion).focusPolicy() \
+                == Qt.FocusPolicy.TabFocus
+    ventana.close()

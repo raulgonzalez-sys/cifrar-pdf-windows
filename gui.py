@@ -972,7 +972,11 @@ class Ventana(QMainWindow):
         # QToolBar crea sus botones con Qt::NoFocus, así que la barra entera
         # quedaba fuera del recorrido del Tab: sin ratón solo se circulaba
         # entre la lista y el botón del estado vacío.
+        # Los separadores también son widgets de la barra: sin saltarlos, el
+        # Tab pararía en un hueco que no hace nada.
         for accion in barra.actions():
+            if accion.isSeparator():
+                continue
             boton = barra.widgetForAction(accion)
             if boton is not None:
                 boton.setFocusPolicy(Qt.FocusPolicy.TabFocus)
