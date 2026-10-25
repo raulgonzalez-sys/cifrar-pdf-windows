@@ -54,3 +54,23 @@ def test_pedir_barrido_rechaza_ids_malos(cid):
     from cifrarpdf import rutas
     assert proceso.pedir_barrido(cid) is False
     assert list(rutas.barrer_dir().iterdir()) == []
+
+
+@pytest.mark.skipif(rutas.ES_WINDOWS, reason="rama POSIX; en Windows tocaría el Run real")
+def test_quien_lanza_el_vigilante_con_tuberias_recibe_el_final(escritorio, monkeypatch):
+    """La ventana lanza «--gui-asegurar» capturando su salida: si el vigilante
+    heredara esas tuberías, nunca llegaría el fin de fichero y se colgaría."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    from cifrarpdf import config
+    monkeypatch.setenv("CIFRARPDF_SIN_BANDEJA", "1")
+    config.escribir("informes", "Informes", escritorio / "Informes", "preguntar")
+    try:
+        resultado = subprocess.run(
+            [sys.executable, "-m", "cifrarpdf", "--gui-asegurar"],
+            capture_output=True, timeout=20, cwd=Path(__file__).resolve().parents[1])
+        assert resultado.returncode == 0, resultado.stderr
+    finally:
+        assert proceso.parar()

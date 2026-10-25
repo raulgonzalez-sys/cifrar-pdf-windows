@@ -164,7 +164,11 @@ def arrancar() -> bool:
                 close_fds=True,
             )
         else:
-            subprocess.Popen(orden, start_new_session=True, close_fds=True)
+            # Sin heredar las tuberías: quien lanza con «capture_output» no
+            # recibiría nunca el fin de fichero y se colgaría.
+            subprocess.Popen(orden, start_new_session=True, close_fds=True,
+                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL)
     except OSError as error:
         rutas.log(f"ERROR al arrancar el vigilante: {error}")
         return False
