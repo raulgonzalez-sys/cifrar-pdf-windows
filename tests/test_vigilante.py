@@ -351,6 +351,31 @@ def test_los_botones_estandar_salen_en_castellano():
             QCoreApplication.removeTranslator(traductor)
 
 
+def test_la_etiqueta_del_dialogo_es_ancha_con_segoe_ui(monkeypatch):
+    """Con Segoe UI 9 pt al 100 % (windows-latest) la letra media es estrecha
+    frente a la altura de línea: medir en caracteres dejaba el diálogo en
+    unos 322 px, aunque en Linux con DejaVu saliera ancho."""
+    widgets = pytest.importorskip("PyQt6.QtWidgets")
+    app = widgets.QApplication.instance() or widgets.QApplication([])  # noqa: F841 — que no la recoja el GC
+
+    class MetricasSegoe:
+        def height(self) -> int:
+            return 16
+
+        def averageCharWidth(self) -> int:  # noqa: N802 — API de Qt
+            return 6
+
+    etiqueta = widgets.QLabel("Carpeta: Nóminas\nPDF: contrato.pdf")
+    monkeypatch.setattr(widgets.QLabel, "fontMetrics",
+                        lambda self: MetricasSegoe())
+    vigilante._ensanchar_etiqueta(etiqueta)
+
+    assert etiqueta.wordWrap()
+    # ANCHO_MINIMO de pruebas_escritorio/conducir.py es la ventana entera;
+    # la etiqueta sola ya tiene que llegar.
+    assert etiqueta.minimumWidth() >= 400
+
+
 # --- Avisos pensados para el globo de Windows ---------------------------------
 
 @pytest.fixture

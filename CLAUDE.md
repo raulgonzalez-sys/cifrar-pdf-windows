@@ -151,8 +151,9 @@ técnico. Los mensajes se escriben para ellas.
     sujeta `Vigilancia` toda su vida. El CI no lo vio porque corría con
     `CIFRARPDF_SIN_BANDEJA=1`.
 21. **`QInputDialog` ignora `setMinimumWidth`.** Su layout `SetMinAndMaxSize`
-    lo pisa al mostrarse. El mínimo se pone en la etiqueta, en unidades de
-    fuente.
+    lo pisa al mostrarse. El mínimo se pone en la etiqueta y en alturas de
+    línea, no con `averageCharWidth`: la de Segoe UI es pequeña y 50
+    caracteres daban 322 px en Windows aunque en Linux salieran 422.
 22. **Los botones estándar de Qt salen en inglés sin `qtbase_es`.** En KDE los
     traduce plasma-integration; en Windows nadie. El vigilante instala el
     traductor en español forzado, PyInstaller empaqueta el `.qm` y el CI

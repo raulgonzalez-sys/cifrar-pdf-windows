@@ -694,12 +694,7 @@ def _bucle_con_bandeja() -> int:
                 # pantalla, dejando los botones fuera.
                 etiqueta = dialogo.findChild(QLabel)
                 if etiqueta is not None:
-                    etiqueta.setWordWrap(True)
-                    # El ancho va en la etiqueta: el del diálogo lo pisa su
-                    # layout (SetMinAndMaxSize) al mostrarse. En unidades de
-                    # fuente, como la ventana.
-                    etiqueta.setMinimumWidth(
-                        etiqueta.fontMetrics().averageCharWidth() * 50)
+                    _ensanchar_etiqueta(etiqueta)
                 QTimer.singleShot(int(preguntar.ESPERA_PREGUNTA * 1000),
                                   lambda: caducar(dialogo))
                 aceptado = _mostrar(dialogo) == QDialog.DialogCode.Accepted
@@ -738,6 +733,19 @@ def _bucle_con_bandeja() -> int:
     )
     temporizador.start()
     return aplicacion.exec()
+
+
+def _ensanchar_etiqueta(etiqueta) -> None:  # noqa: ANN001 — QLabel
+    """Ajusta la etiqueta del diálogo de contraseña: varias líneas y ancho mínimo.
+
+    El ancho va en la etiqueta: el del diálogo lo pisa su layout
+    (SetMinAndMaxSize) al mostrarse. Se mide en alturas de línea, como
+    `_dimensionar` de gui.py, y no en caracteres: la letra media de Segoe UI
+    es estrecha y 50 caracteres dejaban el diálogo en 322 px en Windows,
+    aunque con DejaVu en Linux salieran 422.
+    """
+    etiqueta.setWordWrap(True)
+    etiqueta.setMinimumWidth(etiqueta.fontMetrics().height() * 26)
 
 
 def _instalar_traductor(aplicacion):  # noqa: ANN001, ANN202 — QApplication → QTranslator | None
