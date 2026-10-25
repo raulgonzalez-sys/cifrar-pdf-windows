@@ -37,6 +37,10 @@ ESPERA_COLA = 0.5
 # Contraseñas de lote del modo «preguntar»: en memoria y con caducidad.
 _lote = preguntar.Lote()
 
+# PDF que el lote omitió por estar en uso y de los que ya se avisó (por
+# `_clave`). Su propio evento sigue en la cola: si falla, no se avisa otra vez.
+_avisados_lote: set[str] = set()
+
 
 class _DeBarrido(NamedTuple):
     """Un PDF que encontró un barrido, no un evento.
@@ -190,6 +194,10 @@ def _procesar(ruta: Path, mapa: dict[str, config.Carpeta]) -> None:
     if _ya_cifrado(ruta):
         return
     if not espera.esperar_archivo(ruta):
+        if _clave(ruta) in _avisados_lote:
+            _avisados_lote.discard(_clave(ruta))
+            rutas.log(f"Sigue en uso, ya avisado en el lote: {ruta}")
+            return
         notificar.error(
             "Cifrar PDF",
             f"«{ruta.name}» no terminó de copiarse (o sigue abierto en otro "
@@ -221,6 +229,7 @@ def _cifrar_y_avisar(ruta: Path, clave: str) -> bool:
     except cifrar.ErrorCifrado as error:
         notificar.error("Error al cifrar PDF", str(error))
         return False
+    _avisados_lote.discard(_clave(ruta))
     # Ya protegido: si venía marcado como sin cifrar, recupera su nombre limpio.
     final = preguntar.limpiar_prefijo(ruta)
     notificar.info("PDF protegido", f"Cifrado correctamente:\n{final.name}")
@@ -297,7 +306,8 @@ def _procesar_preguntando(ruta: Path, carpeta: config.Carpeta) -> None:
             if not pendiente.is_file():
                 continue
             # Bloqueado por otro proceso: si aún se copia, lo cifra su propio
-            # evento; si lo tiene abierto un visor, no habrá evento.
+            # evento; si lo tiene abierto un visor, solo habrá evento si llegó
+            # en esta misma tanda.
             if (os.path.normcase(pendiente.name) != os.path.normcase(ruta.name)
                     and espera.bloqueado(pendiente)):
                 rutas.log(f"Lote: se omite, en uso por otro programa: {pendiente}")
@@ -308,11 +318,13 @@ def _procesar_preguntando(ruta: Path, carpeta: config.Carpeta) -> None:
         # curso: mejor un aviso de más que un PDF en claro sin decirlo.
         for omitido in omitidos:
             if omitido.is_file():
+                _avisados_lote.add(_clave(omitido))
                 notificar.error(
                     "Cifrar PDF",
                     f"«{preguntar.recortar_nombre(omitido.name)}» sigue abierto "
-                    "en otro programa (o aún se copia) y no se ha cifrado.\n"
-                    "Ciérralo y vuelve a soltarlo en la carpeta.")
+                    "en otro programa (o aún se copia) y de momento no se ha "
+                    "cifrado.\nCiérralo: si en un minuto no ves «PDF protegido», "
+                    "vuelve a soltarlo en la carpeta.")
         return
 
     _cifrar_y_avisar(ruta, clave)

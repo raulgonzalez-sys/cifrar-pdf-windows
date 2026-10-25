@@ -201,8 +201,37 @@ def test_el_pendiente_omitido_del_lote_se_avisa(
     assert not cifrar.ya_cifrado(abierto)
     avisos = [x for _t, x in errores if "«dos.pdf»" in x]
     assert len(avisos) == 1, errores
-    assert "no se ha cifrado" in avisos[0]
-    assert "Ciérralo y vuelve a soltarlo" in avisos[0]
+    assert "de momento no se ha cifrado" in avisos[0]
+    assert "si en un minuto no ves «PDF protegido»" in avisos[0]
+
+
+def test_el_omitido_del_lote_no_se_avisa_otra_vez_por_su_evento(
+        escritorio, sin_keyring, atendedor, monkeypatch, log):
+    """Su propio evento seguía en la cola: a los 60 s no puede llegar un segundo
+    aviso, «no terminó de copiarse», del mismo PDF."""
+    from cifrarpdf import notificar
+    ruta = escritorio / "Informes"
+    ruta.mkdir()
+    config.escribir("informes", "Informes", ruta, "preguntar")
+    carpeta = config.leer("informes")
+    mapa = {vigilante._clave(ruta): carpeta}
+    soltado = pdf(ruta, "uno.pdf")
+    abierto = pdf(ruta, "dos.pdf")
+    monkeypatch.setattr(espera, "bloqueado", lambda r: r.name == "dos.pdf")
+    monkeypatch.setattr(espera, "esperar_archivo", lambda r, *a, **k: False)
+    errores = []
+    monkeypatch.setattr(notificar, "error", lambda t, x: errores.append((t, x)))
+
+    vigilante._procesar_preguntando(soltado, carpeta)
+    vigilante._procesar(abierto, mapa)
+
+    avisos = [x for _t, x in errores if "«dos.pdf»" in x]
+    assert len(avisos) == 1, errores
+    assert f"ya avisado en el lote: {abierto}" in log.read_text(encoding="utf-8")
+
+    # Avisado una vez, no para siempre: la próxima vez que falle se avisa.
+    vigilante._procesar(abierto, mapa)
+    assert len([x for _t, x in errores if "«dos.pdf»" in x]) == 2
 
 
 def test_un_aviso_que_llega_mientras_lee_las_carpetas_no_se_pierde(
