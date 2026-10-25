@@ -679,7 +679,11 @@ def _bucle_con_bandeja() -> int:
                 etiqueta = dialogo.findChild(QLabel)
                 if etiqueta is not None:
                     etiqueta.setWordWrap(True)
-                dialogo.setMinimumWidth(420)
+                    # El ancho va en la etiqueta: el del diálogo lo pisa su
+                    # layout (SetMinAndMaxSize) al mostrarse. En unidades de
+                    # fuente, como la ventana.
+                    etiqueta.setMinimumWidth(
+                        etiqueta.fontMetrics().averageCharWidth() * 50)
                 QTimer.singleShot(int(preguntar.ESPERA_PREGUNTA * 1000),
                                   lambda: caducar(dialogo))
                 aceptado = _mostrar(dialogo) == QDialog.DialogCode.Accepted
