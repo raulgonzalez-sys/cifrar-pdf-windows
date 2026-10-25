@@ -678,7 +678,7 @@ class DialogoContrasena(QDialog):
 class DialogoRegistro(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Registro — Cifrar PDF")
+        self.setWindowTitle("Registro")
         self.setWindowIcon(tema("view-list-text", "text-x-generic"))
         self.resize(720, 460)
 
@@ -712,7 +712,7 @@ class DialogoRegistro(QDialog):
             self.texto.verticalScrollBar().maximum())
 
     def _limpiar(self):
-        if QMessageBox.question(self, "Cifrar PDF",
+        if QMessageBox.question(self, "",
                                 "¿Limpiar todo el registro?") \
                 == QMessageBox.StandardButton.Yes:
             try:
@@ -1550,7 +1550,7 @@ class Ventana(QMainWindow):
         if fila is None:
             return
         if QMessageBox.warning(
-                self, "Cifrar PDF",
+                self, "",
                 f"¿Quitar la carpeta de cifrado «{fila['nombre']}»?\n\n"
                 "Se quitará de la lista y se borrará su contraseña guardada.",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
@@ -1560,7 +1560,7 @@ class Ventana(QMainWindow):
         args = ["--gui-remove", fila["id"]]
         if os.path.isdir(fila["carpeta"]):
             resp = QMessageBox.question(
-                self, "Cifrar PDF",
+                self, "",
                 f"¿Borrar también la carpeta «{fila['nombre']}» y todo su "
                 f"contenido del disco?\n\n{fila['carpeta']}",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
@@ -1578,7 +1578,7 @@ class Ventana(QMainWindow):
         if self.lista.count() == 0:
             return
         if QMessageBox.warning(
-                self, "Cifrar PDF — Quitar todas",
+                self, "Quitar todas",
                 "¿Quitar TODAS las carpetas de cifrado?\n\n"
                 "Se dejarán de cifrar y se borrarán sus contraseñas guardadas.",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
@@ -1588,7 +1588,7 @@ class Ventana(QMainWindow):
         args = ["--gui-remove-all"]
         if any(os.path.isdir(f["carpeta"]) for f in self._carpetas()):
             resp = QMessageBox.question(
-                self, "Cifrar PDF",
+                self, "",
                 "¿Borrar también las carpetas del Escritorio y todo su "
                 "contenido?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
@@ -1605,12 +1605,14 @@ class Ventana(QMainWindow):
     def ver_registro(self):
         DialogoRegistro(self).exec()
 
-    # Mensajes
+    # Mensajes. Título "" a propósito: con setApplicationDisplayName Qt añade
+    # « — Cifrar PDF — FISAT» a todo título que no termine así, y con el nombre
+    # puesto a mano salía repetido; vacío, pone solo el DisplayName.
     def _error(self, texto):
-        QMessageBox.critical(self, "Cifrar PDF", texto)
+        QMessageBox.critical(self, "", texto)
 
     def _aviso(self, texto):
-        QMessageBox.information(self, "Cifrar PDF", texto)
+        QMessageBox.information(self, "", texto)
 
 
 def _ruta_unica(destino):
