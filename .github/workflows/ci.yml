@@ -55,9 +55,8 @@ jobs:
       - name: Ciclo completo con el vigilante (alta, cifrado real, baja)
         shell: pwsh
         env:
-          # El runner no tiene sesión de escritorio, así que el vigilante corre
-          # sin icono en el área de notificación. Que esto funcione es parte de
-          # lo que se prueba: cifrar NO puede depender de que haya bandeja.
+          # Sin icono en el área de notificación a propósito: cifrar NO puede
+          # depender de que haya bandeja. Con bandeja lo prueba escritorio.yml.
           CIFRARPDF_SIN_BANDEJA: "1"
         run: |
           $env:CIFRARPDF_CONFIG_DIR = "$env:RUNNER_TEMP\cfg"

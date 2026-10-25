@@ -540,10 +540,6 @@ def _esperar_parada() -> int:
     saber que está funcionando), no la función de la herramienta. Si montar la
     interfaz falla —una sesión sin escritorio, un perfil raro, Qt que no
     arranca—, se sigue vigilando igual y se deja dicho en el registro.
-
-    Esto no es teórico: en el CI (que corre sin sesión de escritorio) el proceso
-    se quedaba colgado montando la bandeja y sobrevivía a la petición de parada,
-    apareciendo como «Terminate orphan process: CifrarPDF» al final del trabajo.
     """
     if os.environ.get("CIFRARPDF_SIN_BANDEJA") == "1":
         rutas.log("CIFRARPDF_SIN_BANDEJA=1: se vigila sin icono en la bandeja.")
