@@ -221,18 +221,25 @@ def _procesar(ruta: Path, mapa: dict[str, config.Carpeta]) -> None:
     _cifrar_y_avisar(ruta, clave)
 
 
-def _cifrar_y_avisar(ruta: Path, clave: str) -> bool:
-    """Cifra un PDF y avisa del resultado. False si no se pudo."""
+def _cifrar_y_avisar(ruta: Path, clave: str, avisar: bool = True) -> bool:
+    """Cifra un PDF y avisa del resultado. True si lo ha cifrado ahora.
+
+    Los errores se avisan siempre; el éxito, solo con «avisar» (el lote da
+    uno solo al final).
+    """
     try:
         if not cifrar.cifrar_en_sitio(ruta, clave):
-            return True
+            return False
     except cifrar.ErrorCifrado as error:
         notificar.error("Error al cifrar PDF", str(error))
         return False
     _avisados_lote.discard(_clave(ruta))
     # Ya protegido: si venía marcado como sin cifrar, recupera su nombre limpio.
     final = preguntar.limpiar_prefijo(ruta)
-    notificar.info("PDF protegido", f"Cifrado correctamente:\n{final.name}")
+    if avisar:
+        notificar.info("PDF protegido", f"Cifrado correctamente:\n{final.name}")
+    else:
+        rutas.log(f"PDF protegido — Cifrado correctamente: {final.name}")
     return True
 
 
@@ -302,6 +309,7 @@ def _procesar_preguntando(ruta: Path, carpeta: config.Carpeta) -> None:
         rutas.log(f"Lote de {len(pendientes)} PDF con una sola contraseña en "
                   f"«{carpeta.nombre}» (reuso {preguntar.REUSO_TTL:.0f} s).")
         omitidos: list[Path] = []
+        cifrados = 0
         for pendiente in pendientes:
             if not pendiente.is_file():
                 continue
@@ -313,7 +321,14 @@ def _procesar_preguntando(ruta: Path, carpeta: config.Carpeta) -> None:
                 rutas.log(f"Lote: se omite, en uso por otro programa: {pendiente}")
                 omitidos.append(pendiente)
                 continue
-            _cifrar_y_avisar(pendiente, clave)
+            cifrados += _cifrar_y_avisar(pendiente, clave, avisar=False)
+        # Un solo aviso de éxito para todo el lote: Windows enseña los avisos de
+        # uno en uno, unos 5 s cada uno, y un error posterior quedaba detrás de
+        # la cola de «PDF protegido».
+        if cifrados:
+            plural = "s" if cifrados != 1 else ""
+            notificar.info("PDF protegidos",
+                           f"Protegido{plural} {cifrados} PDF en «{carpeta.nombre}».")
         # En Windows un visor bloquea el PDF y no se distingue de una copia en
         # curso: mejor un aviso de más que un PDF en claro sin decirlo.
         for omitido in omitidos:
@@ -354,11 +369,12 @@ def _avisar_sin_cifrar(ruta: Path, nombre_carpeta: str = "") -> None:
         notificar.error("PDF SIN CIFRAR",
                         f"«{corto}» NO está protegido.\n{donde}")
         return
+    # Orden distinto del bash: el globo de Windows solo enseña las primeras
+    # líneas, así que lo que hay que hacer va antes que el porqué del prefijo.
     notificar.error(
         "PDF SIN CIFRAR",
-        f"«{corto}» NO está protegido.\n"
-        "Le he puesto delante «SIN-CIFRAR_» para que no se te pase.\n"
-        f"{donde}")
+        f"«{corto}» NO está protegido.\n{donde}\n"
+        "Le he puesto delante «SIN-CIFRAR_» para que no se te pase.")
 
 
 def _trabajador(cola: queue.Queue, mapa: dict[str, config.Carpeta],

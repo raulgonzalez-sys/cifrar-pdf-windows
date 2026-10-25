@@ -349,3 +349,72 @@ def test_los_botones_estandar_salen_en_castellano():
     finally:
         if traductor is not None:
             QCoreApplication.removeTranslator(traductor)
+
+
+# --- Avisos pensados para el globo de Windows ---------------------------------
+
+@pytest.fixture
+def avisos(monkeypatch):
+    from cifrarpdf import notificar
+    vistos = []
+    monkeypatch.setattr(notificar, "info", lambda t, x: vistos.append(("info", t, x)))
+    monkeypatch.setattr(notificar, "error", lambda t, x: vistos.append(("error", t, x)))
+    return vistos
+
+
+def test_el_aviso_sin_cifrar_dice_que_hacer_en_la_segunda_linea(escritorio, avisos):
+    """El globo de Windows solo enseña las primeras líneas."""
+    carpeta = escritorio / "Informes"
+    carpeta.mkdir()
+    fichero = pdf(carpeta, "uno.pdf")
+
+    vigilante._avisar_sin_cifrar(fichero, "Informes")
+
+    (_tipo, _titulo, texto), = avisos
+    lineas = texto.split("\n")
+    assert lineas[0] == "«uno.pdf» NO está protegido."
+    assert lineas[1].startswith("Sigue en la carpeta «Informes»: suelta ahí")
+    assert "SIN-CIFRAR_" in lineas[-1]
+
+
+def test_el_lote_da_un_solo_aviso_de_protegidos(
+        escritorio, sin_keyring, atendedor, avisos, log):
+    """Windows enseña los avisos de uno en uno: tres «PDF protegido» seguidos
+    dejaban detrás de la cola un error posterior."""
+    ruta = escritorio / "Informes"
+    ruta.mkdir()
+    config.escribir("informes", "Informes", ruta, "preguntar")
+    carpeta = config.leer("informes")
+    soltado = pdf(ruta, "uno.pdf")
+    pdf(ruta, "dos.pdf")
+    pdf(ruta, "tres.pdf")
+
+    vigilante._procesar_preguntando(soltado, carpeta)
+
+    assert avisos == [("info", "PDF protegidos", "Protegidos 3 PDF en «Informes».")]
+    registro = log.read_text(encoding="utf-8")
+    for nombre in ("uno.pdf", "dos.pdf", "tres.pdf"):
+        assert f"PDF protegido — Cifrado correctamente: {nombre}" in registro
+
+
+def test_el_lote_avisa_de_cada_error(
+        escritorio, sin_keyring, atendedor, avisos, monkeypatch):
+    ruta = escritorio / "Informes"
+    ruta.mkdir()
+    config.escribir("informes", "Informes", ruta, "preguntar")
+    carpeta = config.leer("informes")
+    soltado = pdf(ruta, "uno.pdf")
+    pdf(ruta, "dos.pdf")
+    original = cifrar.cifrar_en_sitio
+
+    def falla_dos(r, clave):
+        if r.name == "dos.pdf":
+            raise cifrar.ErrorCifrado("No se pudo cifrar «dos.pdf»: roto")
+        return original(r, clave)
+
+    monkeypatch.setattr(cifrar, "cifrar_en_sitio", falla_dos)
+
+    vigilante._procesar_preguntando(soltado, carpeta)
+
+    assert ("error", "Error al cifrar PDF", "No se pudo cifrar «dos.pdf»: roto") in avisos
+    assert ("info", "PDF protegidos", "Protegido 1 PDF en «Informes».") in avisos

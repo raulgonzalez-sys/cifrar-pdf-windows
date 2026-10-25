@@ -19,7 +19,10 @@ VSVersionInfo(
                 "0C0A04B0",
                 [
                     StringStruct("CompanyName", "Fundación FISAT Salesianos Social"),
-                    StringStruct("FileDescription", "Cifrar PDF — cifra los PDF que sueltas en tus carpetas"),
+                    # Windows la pone de cabecera en los avisos de un icono de
+                    # bandeja sin AUMID: larga, se cortaba.
+                    StringStruct("FileDescription", "Cifrar PDF"),
+                    StringStruct("Comments", "Cifrar PDF — cifra los PDF que sueltas en tus carpetas"),
                     StringStruct("FileVersion", "1.1.1.0"),
                     StringStruct("InternalName", "CifrarPDF"),
                     StringStruct("OriginalFilename", "CifrarPDF.exe"),
