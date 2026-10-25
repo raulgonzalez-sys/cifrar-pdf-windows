@@ -103,25 +103,19 @@ def quitar_no_molestar() -> None:
     time.sleep(2.5)
     hecho = False
     for w in Desktop(backend="uia").windows():
-        if "otific" not in w.window_text():
+        if w.class_name() != "Windows.UI.Core.CoreWindow":
             continue
         for d in w.descendants():
-            if d.window_text() == "Do Not Disturb" and d.element_info.control_type in (
-                    "Button", "CheckBox"):
-                try:
-                    estado = d.get_toggle_state()
-                    anotar(f"  [entorno] No molestar: estado {estado}")
-                    if estado:
-                        d.toggle()
-                except Exception as error:  # noqa: BLE001
-                    anotar(f"  [entorno] toggle: {error!r}; pruebo con clic")
-                    d.click_input()
+            nombre = d.window_text()
+            if nombre and "Do Not Disturb" in nombre and not hecho:
+                anotar(f"  [entorno] botón «{nombre}» ({d.element_info.control_type}) "
+                       f"en {d.rectangle()}")
+                d.click_input()
                 hecho = True
-                break
     time.sleep(1.5)
     captura("C0_no_molestar")
     for w in Desktop(backend="uia").windows():
-        if "otific" in w.window_text():
+        if w.class_name() == "Windows.UI.Core.CoreWindow":
             textos = [d.window_text() for d in w.descendants() if d.window_text()]
             anotar(f"  [entorno] centro tras quitar No molestar ({hecho}): {textos[:8]}")
     send_keys("{ESC}")
