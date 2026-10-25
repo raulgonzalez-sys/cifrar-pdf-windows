@@ -4,7 +4,7 @@ import time
 
 import pytest
 
-from cifrarpdf import proceso
+from cifrarpdf import proceso, rutas
 
 
 def test_sin_vigilante_no_esta_activo():
@@ -28,6 +28,16 @@ def test_asegurar_sin_carpetas_no_lanza_nada(monkeypatch):
 
 def test_pedir_parada_sin_nadie_escuchando_no_falla():
     proceso.pedir_parada()
+
+
+@pytest.mark.skipif(not rutas.ES_WINDOWS, reason="evento con nombre de Win32")
+def test_la_parada_llega_al_vigilante_en_marcha():
+    """El evento tiene que existir mientras viva el vigilante: si solo existiera
+    durante cada consulta, «pedir_parada» no lo encontraría casi nunca."""
+    with proceso.Vigilancia():
+        assert proceso.parada_pedida(0) is False
+        proceso.pedir_parada()
+        assert proceso.parada_pedida(0) is True
 
 
 def test_pedir_barrido_crea_el_marcador():

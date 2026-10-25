@@ -25,6 +25,10 @@ from . import autostart, config, rutas
 NOMBRE_MUTEX = r"Local\FISAT-CifrarPDF-Vigilante"
 NOMBRE_EVENTO = r"Local\FISAT-CifrarPDF-Parar"
 
+# El evento de parada del vigilante de ESTE proceso (ver Vigilancia).
+_evento = None
+
+
 class YaEnMarcha(Exception):
     """Ya hay un vigilante de este usuario funcionando."""
 
@@ -40,8 +44,10 @@ class Vigilancia:
 
     def __init__(self) -> None:
         self._mutex = None
+        self._evento = None
 
     def __enter__(self) -> Vigilancia:
+        global _evento
         if rutas.ES_WINDOWS:
             import ctypes
 
@@ -56,18 +62,33 @@ class Vigilancia:
             if error == _win.ERROR_ALREADY_EXISTS:
                 _win.kernel32.CloseHandle(mutex)
                 raise YaEnMarcha
+            # Un objeto con nombre de Win32 muere al cerrarse su último handle:
+            # el vigilante sujeta el evento de parada toda su vida para que
+            # «pedir_parada» lo encuentre. Se pone a cero por si lo creó otro.
+            evento = _win.kernel32.CreateEventW(None, True, False, NOMBRE_EVENTO)
+            if not evento:
+                error = ctypes.get_last_error()
+                _win.kernel32.CloseHandle(mutex)
+                raise OSError(f"No se pudo crear el evento de parada (error {error}).")
+            _win.kernel32.ResetEvent(evento)
             self._mutex = mutex
+            self._evento = evento
+            _evento = evento
         else:
             if activo():
                 raise YaEnMarcha
             _pid_file().write_text(str(os.getpid()), encoding="utf-8")
-        limpiar_parada()
         return self
 
     def __exit__(self, *_excepcion: object) -> None:
+        global _evento
         if rutas.ES_WINDOWS:
+            from . import _win
+            if self._evento:
+                _win.kernel32.CloseHandle(self._evento)
+                self._evento = None
+                _evento = None
             if self._mutex:
-                from . import _win
                 _win.kernel32.CloseHandle(self._mutex)
                 self._mutex = None
         else:
@@ -116,30 +137,15 @@ def pedir_parada() -> None:
         pass
 
 
-def limpiar_parada() -> None:
-    """Deja el evento de parada a cero (lo llama el vigilante al arrancar)."""
-    if not rutas.ES_WINDOWS:
-        return
-    from . import _win
-    asa = _win.kernel32.CreateEventW(None, True, False, NOMBRE_EVENTO)
-    if asa:
-        _win.kernel32.ResetEvent(asa)
-        _win.kernel32.CloseHandle(asa)
-
-
 def parada_pedida(espera_ms: int = 0) -> bool:
     """¿Nos han pedido parar? Espera hasta «espera_ms» milisegundos."""
-    if not rutas.ES_WINDOWS:
-        time.sleep(espera_ms / 1000)
-        return False
-    from . import _win
-    asa = _win.kernel32.CreateEventW(None, True, False, NOMBRE_EVENTO)
-    if not asa:
-        return False
-    try:
-        return _win.kernel32.WaitForSingleObject(asa, espera_ms) == _win.WAIT_OBJECT_0
-    finally:
-        _win.kernel32.CloseHandle(asa)
+    if rutas.ES_WINDOWS and _evento:
+        from . import _win
+        return _win.kernel32.WaitForSingleObject(_evento, espera_ms) == _win.WAIT_OBJECT_0
+    # Sin evento propio se duerme igual: «_bucle_simple» no puede quedarse en
+    # un bucle activo.
+    time.sleep(espera_ms / 1000)
+    return False
 
 
 # --- Arranque / paro / refresco --------------------------------------------
