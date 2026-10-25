@@ -584,6 +584,7 @@ def _bucle_con_bandeja() -> int:
         peticion = pyqtSignal(object)
 
     aplicacion = QApplication(sys.argv)
+    _instalar_traductor(aplicacion)
     aplicacion.setApplicationName("Cifrar PDF")
     aplicacion.setQuitOnLastWindowClosed(False)
 
@@ -717,6 +718,28 @@ def _bucle_con_bandeja() -> int:
     )
     temporizador.start()
     return aplicacion.exec()
+
+
+def _instalar_traductor(aplicacion):  # noqa: ANN001, ANN202 — QApplication → QTranslator | None
+    """Botones estándar de Qt («Aceptar», «Sí»…) en castellano.
+
+    En KDE los traduce plasma-integration; en Windows nadie. Se fuerza el
+    español aunque Windows esté en inglés: toda la interfaz está en castellano.
+    Primero donde dice Qt y luego donde lo deja PyInstaller.
+    """
+    import PyQt6
+    from PyQt6.QtCore import QLibraryInfo, QLocale, QTranslator
+
+    traductor = QTranslator(aplicacion)
+    espanol = QLocale(QLocale.Language.Spanish, QLocale.Country.Spain)
+    for directorio in (QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath),
+                       str(Path(PyQt6.__file__).parent / "Qt6" / "translations")):
+        if traductor.load(espanol, "qtbase", "_", directorio):
+            aplicacion.installTranslator(traductor)
+            return traductor
+    rutas.log("AVISO: no se encontró la traducción de Qt; "
+              "los botones estándar saldrán en inglés.")
+    return None
 
 
 def _ruta_icono() -> Path:

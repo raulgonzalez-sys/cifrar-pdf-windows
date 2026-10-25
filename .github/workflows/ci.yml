@@ -47,6 +47,10 @@ jobs:
           $lista = & "dist\CifrarPDF\CifrarPDF-cli.exe" --gui-listar
           if ($LASTEXITCODE -ne 0) { throw "--gui-listar falló con $LASTEXITCODE" }
           & "dist\CifrarPDF\CifrarPDF-cli.exe" --ayuda | Select-Object -First 1
+          # Sin la traducción de Qt los botones estándar del vigilante salen en
+          # inglés («OK», «Cancel»): en Windows no los traduce nadie más.
+          $qm = Get-ChildItem "dist\CifrarPDF" -Recurse -Filter qtbase_es.qm
+          if (-not $qm) { throw "falta qtbase_es.qm en dist\CifrarPDF" }
 
       - name: Ciclo completo con el vigilante (alta, cifrado real, baja)
         shell: pwsh

@@ -331,3 +331,21 @@ def test_lo_ya_cifrado_y_abierto_en_un_visor_no_espera(nominas, en_uso):
 
     assert en_uso["esperas"] == []
     assert en_uso["errores"] == []
+
+
+# --- Interfaz del vigilante ---------------------------------------------------
+
+def test_los_botones_estandar_salen_en_castellano():
+    """En KDE los traduce plasma-integration; en Windows nadie, aunque el
+    sistema esté en español."""
+    widgets = pytest.importorskip("PyQt6.QtWidgets")
+    from PyQt6.QtCore import QCoreApplication
+    app = widgets.QApplication.instance() or widgets.QApplication([])
+    traductor = vigilante._instalar_traductor(app)
+    try:
+        assert traductor is not None
+        assert QCoreApplication.translate("QPlatformTheme", "&Yes") == "&Sí"
+        assert QCoreApplication.translate("QPlatformTheme", "Cancel") == "Cancelar"
+    finally:
+        if traductor is not None:
+            QCoreApplication.removeTranslator(traductor)
