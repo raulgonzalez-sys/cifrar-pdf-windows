@@ -24,6 +24,7 @@ import subprocess
 import sys
 import threading
 from pathlib import Path
+from typing import NamedTuple
 
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
@@ -37,10 +38,22 @@ ESPERA_COLA = 0.5
 _lote = preguntar.Lote()
 
 
+class _DeBarrido(NamedTuple):
+    """Un PDF que encontró un barrido, no un evento.
+
+    Si está en uso no se le espera: no hay evento que lo vuelva a traer, y un
+    PDF abierto en un visor retendría 60 s la cola entera. «avisar» lo lleva
+    solo el barrido inicial, como en el bash.
+    """
+
+    ruta: Path
+    avisar: bool
+
+
 class _Manejador(FileSystemEventHandler):
     """Mete en la cola los PDF nuevos (creados o movidos a la carpeta)."""
 
-    def __init__(self, cola: queue.Queue[Path]) -> None:
+    def __init__(self, cola: queue.Queue) -> None:
         self.cola = cola
 
     def on_created(self, event) -> None:  # noqa: ANN001 — API de watchdog
@@ -70,7 +83,7 @@ class _ManejadorBarrido(FileSystemEventHandler):
     Van a la cola de los PDF para que solo cifre el hilo trabajador.
     """
 
-    def __init__(self, cola: queue.Queue[Path]) -> None:
+    def __init__(self, cola: queue.Queue) -> None:
         self.cola = cola
 
     def on_created(self, event) -> None:  # noqa: ANN001 — API de watchdog
@@ -88,16 +101,19 @@ def _carpeta_de(ruta: Path, mapa: dict[str, config.Carpeta]) -> config.Carpeta |
     return mapa.get(_clave(ruta.parent))
 
 
-def _atender(ruta: Path, cola: queue.Queue[Path],
+def _atender(elemento: Path | _DeBarrido, cola: queue.Queue,
              mapa: dict[str, config.Carpeta]) -> None:
-    """Lo que saca de la cola el hilo trabajador: un PDF o un aviso de barrido."""
-    if _clave(ruta.parent) == _clave(rutas.barrer_dir()):
-        _barrer_por_aviso(ruta.name, cola, mapa)
+    """Lo que saca de la cola el hilo trabajador: un PDF, un PDF de un barrido
+    o un aviso de barrido."""
+    if isinstance(elemento, _DeBarrido):
+        _procesar_de_barrido(elemento, mapa)
+    elif _clave(elemento.parent) == _clave(rutas.barrer_dir()):
+        _barrer_por_aviso(elemento.name, cola, mapa)
     else:
-        _procesar(ruta, mapa)
+        _procesar(elemento, mapa)
 
 
-def _barrer_por_aviso(cid: str, cola: queue.Queue[Path],
+def _barrer_por_aviso(cid: str, cola: queue.Queue,
                       mapa: dict[str, config.Carpeta]) -> None:
     """Aviso de barrido de la carpeta «cid»: encola sus PDF si sigue en «fija».
 
@@ -119,7 +135,7 @@ def _barrer_por_aviso(cid: str, cola: queue.Queue[Path],
             return
         rutas.log(f"Barrido a petición en «{carpeta.nombre}».")
         for entrada in _pdfs_visibles(carpeta.ruta):
-            cola.put(entrada)
+            cola.put(_DeBarrido(entrada, avisar=False))
         return
 
 
@@ -143,14 +159,35 @@ def _ya_cifrado(ruta: Path) -> bool:
         return False
 
 
+def _procesar_de_barrido(pendiente: _DeBarrido,
+                         mapa: dict[str, config.Carpeta]) -> None:
+    """Paridad con «barrer_carpeta» del bash: lo cifrado fuera, y lo que esté en
+    uso se omite sin esperar (avisando si es el barrido inicial)."""
+    ruta = pendiente.ruta
+    if _carpeta_de(ruta, mapa) is None or not ruta.is_file() or _ya_cifrado(ruta):
+        return
+    if espera.bloqueado(ruta):
+        rutas.log(f"Barrido: se omite, en uso por otro programa: {ruta}")
+        if pendiente.avisar:
+            notificar.error(
+                "PDF SIN CIFRAR",
+                f"No se cifró «{preguntar.recortar_nombre(ruta.name)}» porque "
+                "estaba abierto en otro programa (o aún se copiaba).\n"
+                "Se cifrará en el próximo inicio de sesión, o vuelve a soltarlo "
+                "en la carpeta.")
+        return
+    _procesar(ruta, mapa)
+
+
 def _procesar(ruta: Path, mapa: dict[str, config.Carpeta]) -> None:
     carpeta = _carpeta_de(ruta, mapa)
     if carpeta is None:
         return
     # Lo ya cifrado se descarta antes de esperar (~2 s por fichero), como el
-    # bash, que mira «qpdf --is-encrypted» antes que lsof: un barrido recorre
-    # carpetas llenas de PDF ya protegidos.
-    if not espera.bloqueado(ruta) and _ya_cifrado(ruta):
+    # bash, que mira «qpdf --is-encrypted» antes que lsof. Leer se puede aunque
+    # otro lo tenga abierto, así que un PDF protegido abierto en un visor
+    # tampoco espera.
+    if _ya_cifrado(ruta):
         return
     if not espera.esperar_archivo(ruta):
         notificar.error(
@@ -312,16 +349,17 @@ def _avisar_sin_cifrar(ruta: Path, nombre_carpeta: str = "") -> None:
         f"{donde}")
 
 
-def _trabajador(cola: queue.Queue[Path], mapa: dict[str, config.Carpeta],
+def _trabajador(cola: queue.Queue, mapa: dict[str, config.Carpeta],
                 parar: threading.Event) -> None:
     while not parar.is_set():
         try:
-            ruta = cola.get(timeout=ESPERA_COLA)
+            elemento = cola.get(timeout=ESPERA_COLA)
         except queue.Empty:
             continue
         try:
-            _atender(ruta, cola, mapa)
+            _atender(elemento, cola, mapa)
         except Exception as error:  # noqa: BLE001 — el vigilante no se cae por un PDF
+            ruta = elemento.ruta if isinstance(elemento, _DeBarrido) else elemento
             notificar.error("Error al cifrar PDF",
                             f"Fallo inesperado con «{ruta.name}»: {error}")
         finally:
@@ -352,7 +390,7 @@ def _preparar_carpetas() -> dict[str, config.Carpeta]:
     return mapa
 
 
-def _encolar_existentes(cola: queue.Queue[Path], mapa: dict[str, config.Carpeta]) -> None:
+def _encolar_existentes(cola: queue.Queue, mapa: dict[str, config.Carpeta]) -> None:
     """Barrido inicial: los PDF que ya estaban dentro también se cifran.
 
     Las carpetas en modo «preguntar» se saltan a propósito: nadie quiere que
@@ -372,7 +410,7 @@ def _encolar_existentes(cola: queue.Queue[Path], mapa: dict[str, config.Carpeta]
                       "no tiene contraseña guardada.")
             continue
         for entrada in _pdfs_visibles(carpeta.ruta):
-            cola.put(entrada)
+            cola.put(_DeBarrido(entrada, avisar=True))
 
 
 def _borrar_marcadores() -> None:
@@ -429,7 +467,7 @@ def _ejecutar() -> int:
         rutas.log("Ninguna carpeta utilizable: saliendo.")
         return 0
 
-    cola: queue.Queue[Path] = queue.Queue()
+    cola: queue.Queue = queue.Queue()
     parar = threading.Event()
     hilo = threading.Thread(target=_trabajador, args=(cola, mapa, parar),
                             name="cifrador", daemon=True)

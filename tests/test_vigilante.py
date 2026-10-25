@@ -13,10 +13,17 @@ def cola():
 
 
 def nombres_en(cola):
+    """Nombres de lo encolado, sea un PDF suelto o uno de un barrido."""
     vistos = []
     while not cola.empty():
-        vistos.append(cola.get_nowait().name)
+        elemento = cola.get_nowait()
+        vistos.append(getattr(elemento, "ruta", elemento).name)
     return vistos
+
+
+def atender_todo(cola, mapa):
+    while not cola.empty():
+        vigilante._atender(cola.get_nowait(), cola, mapa)
 
 
 def test_el_manejador_acepta_mayusculas_y_temp_del_usuario(escritorio, cola):
@@ -236,3 +243,62 @@ def test_lo_ya_cifrado_no_espera_a_estar_completo(nominas, monkeypatch):
     vigilante._procesar(protegido, mapa)
 
     assert esperas == []
+
+
+# --- Barrido con PDF en uso: no se espera, como el bash ----------------------
+
+@pytest.fixture
+def en_uso(monkeypatch):
+    """Todo PDF está abierto en otro programa; anota esperas y avisos."""
+    from cifrarpdf import notificar
+    registro = {"esperas": [], "errores": []}
+    monkeypatch.setattr(espera, "bloqueado", lambda ruta: True)
+    monkeypatch.setattr(espera, "esperar_archivo",
+                        lambda ruta, *a, **k: registro["esperas"].append(ruta) or False)
+    monkeypatch.setattr(notificar, "error",
+                        lambda t, x: registro["errores"].append((t, x)))
+    return registro
+
+
+def test_el_barrido_inicial_no_espera_al_pdf_en_uso_y_avisa(nominas, cola, en_uso, log):
+    carpeta, mapa = nominas
+    abierto = pdf(carpeta.ruta, "uno.pdf")
+
+    vigilante._encolar_existentes(cola, mapa)
+    atender_todo(cola, mapa)
+
+    assert en_uso["esperas"] == [], "un PDF en uso no puede retener la cola 60 s"
+    assert not cifrar.ya_cifrado(abierto)
+    assert (f"Barrido: se omite, en uso por otro programa: {abierto}"
+            in log.read_text(encoding="utf-8"))
+    avisos = [x for _t, x in en_uso["errores"] if "«uno.pdf»" in x]
+    assert len(avisos) == 1, en_uso["errores"]
+    assert "próximo inicio de sesión" in avisos[0]
+
+
+def test_el_barrido_a_peticion_no_espera_ni_avisa_del_pdf_en_uso(
+        nominas, cola, en_uso, log):
+    carpeta, mapa = nominas
+    abierto = pdf(carpeta.ruta, "uno.pdf")
+    proceso.pedir_barrido("nominas")
+
+    vigilante._atender(rutas.barrer_dir() / "nominas", cola, mapa)
+    atender_todo(cola, mapa)
+
+    assert en_uso["esperas"] == []
+    assert en_uso["errores"] == []
+    assert (f"Barrido: se omite, en uso por otro programa: {abierto}"
+            in log.read_text(encoding="utf-8"))
+
+
+def test_lo_ya_cifrado_y_abierto_en_un_visor_no_espera(nominas, en_uso):
+    """Leer está permitido aunque otro lo tenga abierto: no hace falta esperar
+    para saber que ya está protegido."""
+    carpeta, mapa = nominas
+    protegido = pdf(carpeta.ruta, "uno.pdf")
+    assert cifrar.cifrar_en_sitio(protegido, "contraseña-larga")
+
+    vigilante._procesar(protegido, mapa)
+
+    assert en_uso["esperas"] == []
+    assert en_uso["errores"] == []
