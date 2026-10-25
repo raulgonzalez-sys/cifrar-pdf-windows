@@ -301,3 +301,17 @@ def test_los_titulos_no_repiten_el_nombre_de_la_aplicacion(
     assert len(titulos) == 7, titulos
     for titulo in titulos + [titulo_registro]:
         assert "Cifrar PDF" not in titulo, titulo
+
+
+def test_el_traductor_pone_en_castellano_los_botones_estandar(aplicacion):
+    """Sin qtbase_es, «Yes»/«No»/«OK» salen en inglés en Windows."""
+    from PyQt6.QtCore import QCoreApplication
+
+    import gui
+    traductor = gui.instalar_traductor_qt(aplicacion)
+    try:
+        assert traductor is not None
+        assert QCoreApplication.translate("QPlatformTheme", "&Yes") == "&Sí"
+    finally:
+        if traductor is not None:
+            aplicacion.removeTranslator(traductor)

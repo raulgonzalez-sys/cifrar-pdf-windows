@@ -20,11 +20,12 @@ import os
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 try:
     from PyQt6.QtCore import (
-        Qt, QEvent, QSize, QFileSystemWatcher, QSettings, QTimer,
-        pyqtSignal,
+        Qt, QEvent, QLibraryInfo, QLocale, QSize, QFileSystemWatcher,
+        QSettings, QTimer, QTranslator, pyqtSignal,
     )
     from PyQt6.QtGui import (
         QAction, QFontDatabase, QFontInfo, QIcon, QKeySequence, QPainter,
@@ -1647,9 +1648,35 @@ def _identificar_en_barra_de_tareas():
         pass
 
 
+def instalar_traductor_qt(app):
+    """Pone en castellano los botones estándar de Qt («Sí», «No», «Aceptar»…).
+
+    En KDE los traduce plasma-integration; en Windows nadie, y salían en
+    inglés. Se fuerza el español de España y no el idioma del sistema porque
+    la interfaz entera está en castellano aunque Windows esté en inglés.
+    Devuelve el traductor, o None si no se encuentra qtbase_es.
+    """
+    import PyQt6
+
+    idioma = QLocale(QLocale.Language.Spanish, QLocale.Country.Spain)
+    carpetas = (
+        QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath),
+        # Donde lo deja PyInstaller, que no lleva el TranslationsPath de Qt.
+        str(Path(PyQt6.__file__).parent / "Qt6" / "translations"),
+    )
+    # Con padre (la app): si no, el recolector lo libera y se pierde.
+    traductor = QTranslator(app)
+    for carpeta in carpetas:
+        if traductor.load(idioma, "qtbase", "_", carpeta):
+            app.installTranslator(traductor)
+            return traductor
+    return None
+
+
 def main():
     _identificar_en_barra_de_tareas()
     app = QApplication(sys.argv)
+    instalar_traductor_qt(app)
     # El nombre de aplicación va SIN espacios: en Debian de él sale el
     # WM_CLASS de la ventana en X11. Lo que se ve escrito es el DisplayName,
     # que sí lleva el título bonito.
