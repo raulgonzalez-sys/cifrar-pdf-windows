@@ -136,6 +136,10 @@ Linux no vale como verificación**: el registro, DPAPI, el Administrador de
 credenciales, los mútex con nombre y el bloqueo de ficheros son ramas de
 Windows. El CI corre en `windows-latest` justamente por eso.
 
+`pruebas_escritorio/conducir.py` es la prueba de escritorio (`escritorio.yml`):
+maneja el `.exe` empaquetado con bandeja y diálogos de verdad, con pywinauto.
+Solo corre en Windows con sesión interactiva.
+
 ### Cómo está montado
 
 ```

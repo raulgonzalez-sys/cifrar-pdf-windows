@@ -178,10 +178,14 @@ las ramas de plataforma del destino. Detalles en `GUI_SYNC.md`.
 
 ## Qué NO se puede verificar en CI
 
-El CI de `windows-latest` cubre el backend de verdad (credenciales, registro,
-cifrado, el `.exe` construido) y que la ventana se construye sin pantalla. **No
-cubre** nada visual ni de sesión real: iconos, notificaciones del área de
-notificación, autoarranque al iniciar sesión, el aviso de SmartScreen, ni el
-antivirus corporativo. Todo eso se comprueba a mano en un equipo (ver la fase 5
-de `PLAN.md`) y así hay que decirlo al informar: «pasa el CI» no es «probado en
-un puesto».
+`ci.yml` cubre el backend de verdad (credenciales, registro, cifrado, el `.exe`
+construido) y que la ventana se construye sin pantalla. `escritorio.yml`
+(`pruebas_escritorio/conducir.py`) maneja el `.exe` en el escritorio
+interactivo del runner: el vigilante con su icono en la bandeja, los diálogos
+del modo «preguntar» contestados con pywinauto (textos, ancho, botones en
+castellano, lote, PDF en uso, cancelar) y la parada real con un diálogo
+abierto. **Sigue sin cubrir**: el aviso de SmartScreen, el antivirus
+corporativo, el autoarranque al iniciar sesión, la apariencia en un Windows en
+español y el arrastre real desde el Explorador (se probó a mano, no queda en el
+CI). Eso se comprueba a mano en un equipo (ver la fase 5 de `PLAN.md`) y así
+hay que decirlo al informar: «pasa el CI» no es «probado en un puesto».

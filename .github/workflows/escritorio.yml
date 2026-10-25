@@ -1,0 +1,49 @@
+name: Escritorio
+
+# El CifrarPDF.exe empaquetado en el escritorio interactivo de windows-latest:
+# vigilante con icono en la bandeja, diálogos del modo «preguntar» contestados
+# con pywinauto y parada real. Lo que ci.yml no ve, porque allí el vigilante
+# corre con CIFRARPDF_SIN_BANDEJA=1. Escenarios en pruebas_escritorio/conducir.py.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  escritorio:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Dependencias
+        run: pip install -e ".[dev]" pywinauto==0.6.9
+
+      - name: Construir los ejecutables
+        run: pyinstaller empaquetar/CifrarPDF.spec --noconfirm
+
+      - name: Escenarios de escritorio
+        env:
+          SALIDA: ${{ runner.temp }}\salida
+          PYTHONIOENCODING: utf-8
+        run: python pruebas_escritorio/conducir.py dist\CifrarPDF
+
+      - name: Limpieza
+        # Que no quede un vigilante vivo si el conductor se cortó a medias.
+        if: always()
+        shell: pwsh
+        run: |
+          if (Test-Path "dist\CifrarPDF\CifrarPDF-cli.exe") { & "dist\CifrarPDF\CifrarPDF-cli.exe" --parar }
+          Stop-Process -Name CifrarPDF -Force -ErrorAction SilentlyContinue
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: escritorio-${{ github.run_attempt }}
+          path: ${{ runner.temp }}\salida
+          if-no-files-found: warn
