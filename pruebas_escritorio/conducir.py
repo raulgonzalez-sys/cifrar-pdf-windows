@@ -93,6 +93,54 @@ def centro_notificaciones(nombre: str) -> None:
         anotar(f"  centro de notificaciones: {error!r}")
 
 
+def quitar_no_molestar() -> None:
+    """Entorno: el runner trae «No molestar» activado y ahí no sale ningún
+    globo. Se desactiva desde el centro de notificaciones (ajuste del sistema,
+    no del producto)."""
+    from pywinauto import Desktop
+    from pywinauto.keyboard import send_keys
+    send_keys("{VK_LWIN down}n{VK_LWIN up}")
+    time.sleep(2.5)
+    hecho = False
+    for w in Desktop(backend="uia").windows():
+        if "otific" not in w.window_text():
+            continue
+        for d in w.descendants():
+            if d.window_text() == "Do Not Disturb" and d.element_info.control_type in (
+                    "Button", "CheckBox"):
+                try:
+                    estado = d.get_toggle_state()
+                    anotar(f"  [entorno] No molestar: estado {estado}")
+                    if estado:
+                        d.toggle()
+                except Exception as error:  # noqa: BLE001
+                    anotar(f"  [entorno] toggle: {error!r}; pruebo con clic")
+                    d.click_input()
+                hecho = True
+                break
+    time.sleep(1.5)
+    captura("C0_no_molestar")
+    for w in Desktop(backend="uia").windows():
+        if "otific" in w.window_text():
+            textos = [d.window_text() for d in w.descendants() if d.window_text()]
+            anotar(f"  [entorno] centro tras quitar No molestar ({hecho}): {textos[:8]}")
+    send_keys("{ESC}")
+    time.sleep(1)
+
+
+def globo_de_control() -> None:
+    """Entorno: globo con System.Windows.Forms.NotifyIcon (mismo mecanismo,
+    Shell_NotifyIcon, que QSystemTrayIcon.showMessage)."""
+    guion = (
+        "Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing;"
+        "$n = New-Object System.Windows.Forms.NotifyIcon;"
+        "$n.Icon = [System.Drawing.SystemIcons]::Information; $n.Visible = $true;"
+        "$n.ShowBalloonTip(8000, 'Globo de control', 'PowerShell NotifyIcon', 'Info');"
+        "Start-Sleep -Seconds 9; $n.Dispose()")
+    subprocess.Popen(["powershell", "-NoProfile", "-Command", guion])
+    capturas_seguidas("C0_globo_control", 4, 1.2)
+
+
 def ajustes_notificaciones() -> None:
     for clave in (r"HKCU\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings",
                   r"HKCU\Software\Microsoft\Windows\CurrentVersion\PushNotifications",
@@ -452,6 +500,11 @@ def preparar() -> None:
               f"arrancado={bool(ok)}; ¿sin icono? {sin_icono}")
     captura("C0_bandeja")
     ajustes_notificaciones()
+    try:
+        quitar_no_molestar()
+        globo_de_control()
+    except Exception:  # noqa: BLE001
+        anotar(traceback.format_exc())
 
 
 def c1() -> None:
@@ -790,7 +843,6 @@ def ventana() -> None:
     resultado("C9 banda detenido", "ok" if any("detenido" in t.lower() for t in textos)
               else "parcial", f"textos={textos}")
     gui.terminate()
-    real_sin_arnes()
 
 
 def real_sin_arnes() -> None:
@@ -824,7 +876,7 @@ def conjunto(dist: str) -> int:
     global DIST
     DIST = Path(dist).resolve()
     preparar()
-    for fn in (c1, c2, c3, c4, c6, ventana):
+    for fn in (c1, c2, c3, c4, c6, ventana, real_sin_arnes):
         try:
             fn()
         except Exception:  # noqa: BLE001
