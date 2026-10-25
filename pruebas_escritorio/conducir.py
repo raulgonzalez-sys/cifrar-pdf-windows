@@ -71,6 +71,37 @@ def volcar_toasts(prefijo: str) -> None:
         anotar(f"  toast? error: {error!r}")
 
 
+def centro_notificaciones(nombre: str) -> None:
+    """Abre el centro de notificaciones (Win+N), lo captura y lo cierra."""
+    from pywinauto.keyboard import send_keys
+    try:
+        send_keys("{VK_LWIN down}n{VK_LWIN up}")
+        time.sleep(2.5)
+        captura(nombre)
+        volcar_toasts(nombre)
+        try:
+            from pywinauto import Desktop
+            for w in Desktop(backend="uia").windows():
+                if "otific" in w.window_text():
+                    textos = [d.window_text() for d in w.descendants() if d.window_text()]
+                    anotar(f"  centro: {textos[:40]}")
+        except Exception as error:  # noqa: BLE001
+            anotar(f"  centro: {error!r}")
+        send_keys("{ESC}")
+        time.sleep(1)
+    except Exception as error:  # noqa: BLE001
+        anotar(f"  centro de notificaciones: {error!r}")
+
+
+def ajustes_notificaciones() -> None:
+    for clave in (r"HKCU\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings",
+                  r"HKCU\Software\Microsoft\Windows\CurrentVersion\PushNotifications",
+                  r"HKCU\Software\Policies\Microsoft\Windows\Explorer",
+                  r"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"):
+        r = subprocess.run(["reg", "query", clave], capture_output=True, text=True)
+        anotar(f"$ reg query {clave}\n{(r.stdout or r.stderr).strip()[:1500]}")
+
+
 def esperar(cond, tiempo: float = 30.0, paso: float = 0.3):
     limite = time.monotonic() + tiempo
     while time.monotonic() < limite:
@@ -415,11 +446,12 @@ def preparar() -> None:
     ok = esperar(lambda: contar("Sin barrido inicial en «P6»") >= 1 and pid_vigilante(), 40)
     time.sleep(3)
     anotar(f"vigilante: {pid_vigilante()}  estado={cli('--gui-estado')}")
-    sin_icono = ("se vigila sin icono" in registro()
+    sin_icono = ("No hay área de notificación" in registro()
                  or "no se pudo montar el icono" in registro())
     resultado("C0 vigilante con bandeja", "ok" if ok and not sin_icono else "fallo",
               f"arrancado={bool(ok)}; ¿sin icono? {sin_icono}")
     captura("C0_bandeja")
+    ajustes_notificaciones()
 
 
 def c1() -> None:
@@ -431,6 +463,7 @@ def c1() -> None:
     ok_cif = esperar(lambda: cifrado(pdf), 30)
     capturas_seguidas("C1_aviso", 4, 0.8)
     ok_abre = bool(ok_cif) and abre_con(pdf, clave)
+    centro_notificaciones("C1_centro_notificaciones")
     textos = " | ".join(info["textos"]) if info else ""
     t2 = " | ".join(info.get("segundo", {}).get("textos", [])) if info else ""
     nuevo = lineas_desde(marca)
@@ -506,6 +539,7 @@ def c3() -> None:
     ok_otros = esperar(lambda: all(cifrado(p) for p in otros), 40)
     aviso = esperar(lambda: "sigue abierto en otro programa" in lineas_desde(marca), 20)
     capturas_seguidas("C3_aviso_en_uso", 5, 0.8)
+    centro_notificaciones("C3_centro_notificaciones")
     bloq_sin = not cifrado(bloqueado)
     nuevo = lineas_desde(marca)
     checks = {
@@ -667,6 +701,8 @@ def ventana() -> None:
     except OSError as error:
         anotar(f"  no se pudo borrar Noexiste: {error!r}")
     time.sleep(3)
+    ctypes.windll.user32.MoveWindow(w.handle, 10, 0, 1000, 715, True)
+    time.sleep(1.5)
     w.set_focus()
     captura("C7_ventana_estados")
     filas = [i.window_text() for i in w.descendants(control_type="ListItem")]
@@ -686,10 +722,16 @@ def ventana() -> None:
     origen = ORIGEN / "arrastre"
     fuente = hacer_pdf(origen / "arrastrado.pdf")
     subprocess.Popen(["explorer.exe", str(origen)])
-    exp = esperar(lambda: Desktop(backend="uia").window(title="arrastre",
-                                                         class_name="CabinetWClass")
-                  .wrapper_object(), 30)
+    def _explorador():
+        for v in Desktop(backend="uia").windows():
+            if v.class_name() == "CabinetWClass":
+                return v
+        return None
+    exp = esperar(_explorador, 30)
     if not exp:
+        anotar("  ventanas: " + str([(v.window_text(), v.class_name())
+                                     for v in Desktop(backend="uia").windows()]))
+        captura("C8_sin_explorador")
         resultado(esc, "no_verificable", "no se abrió la ventana del Explorador")
         return
     user32 = ctypes.windll.user32
@@ -748,6 +790,34 @@ def ventana() -> None:
     resultado("C9 banda detenido", "ok" if any("detenido" in t.lower() for t in textos)
               else "parcial", f"textos={textos}")
     gui.terminate()
+    real_sin_arnes()
+
+
+def real_sin_arnes() -> None:
+    """C10: lo que vería una trabajadora. Sin el arnés, añadir una carpeta
+    con el vigilante en marcha: ¿se vigila la carpeta nueva?"""
+    esc = "C10"
+    cli("--gui-asegurar")
+    esperar(lambda: pid_vigilante(), 30)
+    time.sleep(4)
+    soltar_evento()
+    pid0 = pid_vigilante()
+    inicios0 = contar("Iniciando vigilancia")
+    t = time.monotonic()
+    salida = cli("--gui-add", "Nueva", entrada="clave-nueva-2026")
+    dur = time.monotonic() - t
+    time.sleep(3)
+    pid1 = pid_vigilante()
+    (pdf,) = soltar("Nueva", "nuevo.pdf")
+    ok = esperar(lambda: cifrado(pdf), 25)
+    estado = cli("--gui-estado")
+    anotar(f"  gui-add tardó {dur:.1f} s; pid {pid0} -> {pid1}; inicios "
+           f"{inicios0} -> {contar('Iniciando vigilancia')}; estado={estado}; "
+           f"nuevo.pdf cifrado={bool(ok)}")
+    resultado(esc, "ok" if ok else "fallo",
+              f"add={salida}, tardó {dur:.1f} s, mismo vigilante={pid0 == pid1}, "
+              f"--gui-estado={estado}, PDF en la carpeta nueva cifrado={bool(ok)}")
+    sujetar_evento()
 
 
 def conjunto(dist: str) -> int:
