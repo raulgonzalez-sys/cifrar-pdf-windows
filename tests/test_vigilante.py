@@ -13,10 +13,17 @@ def cola():
 
 
 def nombres_en(cola):
+    """Nombres de lo encolado, sea un PDF suelto o uno de un barrido."""
     vistos = []
     while not cola.empty():
-        vistos.append(cola.get_nowait().name)
+        elemento = cola.get_nowait()
+        vistos.append(getattr(elemento, "ruta", elemento).name)
     return vistos
+
+
+def atender_todo(cola, mapa):
+    while not cola.empty():
+        vigilante._atender(cola.get_nowait(), cola, mapa)
 
 
 def test_el_manejador_acepta_mayusculas_y_temp_del_usuario(escritorio, cola):
@@ -194,8 +201,37 @@ def test_el_pendiente_omitido_del_lote_se_avisa(
     assert not cifrar.ya_cifrado(abierto)
     avisos = [x for _t, x in errores if "«dos.pdf»" in x]
     assert len(avisos) == 1, errores
-    assert "no se ha cifrado" in avisos[0]
-    assert "Ciérralo y vuelve a soltarlo" in avisos[0]
+    assert "de momento no se ha cifrado" in avisos[0]
+    assert "si en un minuto no ves «PDF protegido»" in avisos[0]
+
+
+def test_el_omitido_del_lote_no_se_avisa_otra_vez_por_su_evento(
+        escritorio, sin_keyring, atendedor, monkeypatch, log):
+    """Su propio evento seguía en la cola: a los 60 s no puede llegar un segundo
+    aviso, «no terminó de copiarse», del mismo PDF."""
+    from cifrarpdf import notificar
+    ruta = escritorio / "Informes"
+    ruta.mkdir()
+    config.escribir("informes", "Informes", ruta, "preguntar")
+    carpeta = config.leer("informes")
+    mapa = {vigilante._clave(ruta): carpeta}
+    soltado = pdf(ruta, "uno.pdf")
+    abierto = pdf(ruta, "dos.pdf")
+    monkeypatch.setattr(espera, "bloqueado", lambda r: r.name == "dos.pdf")
+    monkeypatch.setattr(espera, "esperar_archivo", lambda r, *a, **k: False)
+    errores = []
+    monkeypatch.setattr(notificar, "error", lambda t, x: errores.append((t, x)))
+
+    vigilante._procesar_preguntando(soltado, carpeta)
+    vigilante._procesar(abierto, mapa)
+
+    avisos = [x for _t, x in errores if "«dos.pdf»" in x]
+    assert len(avisos) == 1, errores
+    assert f"ya avisado en el lote: {abierto}" in log.read_text(encoding="utf-8")
+
+    # Avisado una vez, no para siempre: la próxima vez que falle se avisa.
+    vigilante._procesar(abierto, mapa)
+    assert len([x for _t, x in errores if "«dos.pdf»" in x]) == 2
 
 
 def test_un_aviso_que_llega_mientras_lee_las_carpetas_no_se_pierde(
@@ -236,3 +272,174 @@ def test_lo_ya_cifrado_no_espera_a_estar_completo(nominas, monkeypatch):
     vigilante._procesar(protegido, mapa)
 
     assert esperas == []
+
+
+# --- Barrido con PDF en uso: no se espera, como el bash ----------------------
+
+@pytest.fixture
+def en_uso(monkeypatch):
+    """Todo PDF está abierto en otro programa; anota esperas y avisos."""
+    from cifrarpdf import notificar
+    registro = {"esperas": [], "errores": []}
+    monkeypatch.setattr(espera, "bloqueado", lambda ruta: True)
+    monkeypatch.setattr(espera, "esperar_archivo",
+                        lambda ruta, *a, **k: registro["esperas"].append(ruta) or False)
+    monkeypatch.setattr(notificar, "error",
+                        lambda t, x: registro["errores"].append((t, x)))
+    return registro
+
+
+def test_el_barrido_inicial_no_espera_al_pdf_en_uso_y_avisa(nominas, cola, en_uso, log):
+    carpeta, mapa = nominas
+    abierto = pdf(carpeta.ruta, "uno.pdf")
+
+    vigilante._encolar_existentes(cola, mapa)
+    atender_todo(cola, mapa)
+
+    assert en_uso["esperas"] == [], "un PDF en uso no puede retener la cola 60 s"
+    assert not cifrar.ya_cifrado(abierto)
+    assert (f"Barrido: se omite, en uso por otro programa: {abierto}"
+            in log.read_text(encoding="utf-8"))
+    avisos = [x for _t, x in en_uso["errores"] if "«uno.pdf»" in x]
+    assert len(avisos) == 1, en_uso["errores"]
+    assert "próximo inicio de sesión" in avisos[0]
+
+
+def test_el_barrido_a_peticion_no_espera_ni_avisa_del_pdf_en_uso(
+        nominas, cola, en_uso, log):
+    carpeta, mapa = nominas
+    abierto = pdf(carpeta.ruta, "uno.pdf")
+    proceso.pedir_barrido("nominas")
+
+    vigilante._atender(rutas.barrer_dir() / "nominas", cola, mapa)
+    atender_todo(cola, mapa)
+
+    assert en_uso["esperas"] == []
+    assert en_uso["errores"] == []
+    assert (f"Barrido: se omite, en uso por otro programa: {abierto}"
+            in log.read_text(encoding="utf-8"))
+
+
+def test_lo_ya_cifrado_y_abierto_en_un_visor_no_espera(nominas, en_uso):
+    """Leer está permitido aunque otro lo tenga abierto: no hace falta esperar
+    para saber que ya está protegido."""
+    carpeta, mapa = nominas
+    protegido = pdf(carpeta.ruta, "uno.pdf")
+    assert cifrar.cifrar_en_sitio(protegido, "contraseña-larga")
+
+    vigilante._procesar(protegido, mapa)
+
+    assert en_uso["esperas"] == []
+    assert en_uso["errores"] == []
+
+
+# --- Interfaz del vigilante ---------------------------------------------------
+
+def test_los_botones_estandar_salen_en_castellano():
+    """En KDE los traduce plasma-integration; en Windows nadie, aunque el
+    sistema esté en español."""
+    widgets = pytest.importorskip("PyQt6.QtWidgets")
+    from PyQt6.QtCore import QCoreApplication
+    app = widgets.QApplication.instance() or widgets.QApplication([])
+    traductor = vigilante._instalar_traductor(app)
+    try:
+        assert traductor is not None
+        assert QCoreApplication.translate("QPlatformTheme", "&Yes") == "&Sí"
+        assert QCoreApplication.translate("QPlatformTheme", "Cancel") == "Cancelar"
+    finally:
+        if traductor is not None:
+            QCoreApplication.removeTranslator(traductor)
+
+
+def test_la_etiqueta_del_dialogo_es_ancha_con_segoe_ui(monkeypatch):
+    """Con Segoe UI 9 pt al 100 % (windows-latest) la letra media es estrecha
+    frente a la altura de línea: medir en caracteres dejaba el diálogo en
+    unos 322 px, aunque en Linux con DejaVu saliera ancho."""
+    widgets = pytest.importorskip("PyQt6.QtWidgets")
+    app = widgets.QApplication.instance() or widgets.QApplication([])  # noqa: F841 — que no la recoja el GC
+
+    class MetricasSegoe:
+        def height(self) -> int:
+            return 16
+
+        def averageCharWidth(self) -> int:  # noqa: N802 — API de Qt
+            return 6
+
+    etiqueta = widgets.QLabel("Carpeta: Nóminas\nPDF: contrato.pdf")
+    monkeypatch.setattr(widgets.QLabel, "fontMetrics",
+                        lambda self: MetricasSegoe())
+    vigilante._ensanchar_etiqueta(etiqueta)
+
+    assert etiqueta.wordWrap()
+    # ANCHO_MINIMO de pruebas_escritorio/conducir.py es la ventana entera;
+    # la etiqueta sola ya tiene que llegar.
+    assert etiqueta.minimumWidth() >= 400
+
+
+# --- Avisos pensados para el globo de Windows ---------------------------------
+
+@pytest.fixture
+def avisos(monkeypatch):
+    from cifrarpdf import notificar
+    vistos = []
+    monkeypatch.setattr(notificar, "info", lambda t, x: vistos.append(("info", t, x)))
+    monkeypatch.setattr(notificar, "error", lambda t, x: vistos.append(("error", t, x)))
+    return vistos
+
+
+def test_el_aviso_sin_cifrar_dice_que_hacer_en_la_segunda_linea(escritorio, avisos):
+    """El globo de Windows solo enseña las primeras líneas."""
+    carpeta = escritorio / "Informes"
+    carpeta.mkdir()
+    fichero = pdf(carpeta, "uno.pdf")
+
+    vigilante._avisar_sin_cifrar(fichero, "Informes")
+
+    (_tipo, _titulo, texto), = avisos
+    lineas = texto.split("\n")
+    assert lineas[0] == "«uno.pdf» NO está protegido."
+    assert lineas[1].startswith("Sigue en la carpeta «Informes»: suelta ahí")
+    assert "SIN-CIFRAR_" in lineas[-1]
+
+
+def test_el_lote_da_un_solo_aviso_de_protegidos(
+        escritorio, sin_keyring, atendedor, avisos, log):
+    """Windows enseña los avisos de uno en uno: tres «PDF protegido» seguidos
+    dejaban detrás de la cola un error posterior."""
+    ruta = escritorio / "Informes"
+    ruta.mkdir()
+    config.escribir("informes", "Informes", ruta, "preguntar")
+    carpeta = config.leer("informes")
+    soltado = pdf(ruta, "uno.pdf")
+    pdf(ruta, "dos.pdf")
+    pdf(ruta, "tres.pdf")
+
+    vigilante._procesar_preguntando(soltado, carpeta)
+
+    assert avisos == [("info", "PDF protegidos", "Protegidos 3 PDF en «Informes».")]
+    registro = log.read_text(encoding="utf-8")
+    for nombre in ("uno.pdf", "dos.pdf", "tres.pdf"):
+        assert f"PDF protegido — Cifrado correctamente: {nombre}" in registro
+
+
+def test_el_lote_avisa_de_cada_error(
+        escritorio, sin_keyring, atendedor, avisos, monkeypatch):
+    ruta = escritorio / "Informes"
+    ruta.mkdir()
+    config.escribir("informes", "Informes", ruta, "preguntar")
+    carpeta = config.leer("informes")
+    soltado = pdf(ruta, "uno.pdf")
+    pdf(ruta, "dos.pdf")
+    original = cifrar.cifrar_en_sitio
+
+    def falla_dos(r, clave):
+        if r.name == "dos.pdf":
+            raise cifrar.ErrorCifrado("No se pudo cifrar «dos.pdf»: roto")
+        return original(r, clave)
+
+    monkeypatch.setattr(cifrar, "cifrar_en_sitio", falla_dos)
+
+    vigilante._procesar_preguntando(soltado, carpeta)
+
+    assert ("error", "Error al cifrar PDF", "No se pudo cifrar «dos.pdf»: roto") in avisos
+    assert ("info", "PDF protegidos", "Protegido 1 PDF en «Informes».") in avisos

@@ -449,3 +449,21 @@ def test_pendientes_cuenta_los_temp_del_usuario_y_no_los_ocultos(carpeta_pregunt
     pdf(carpeta_preguntar.ruta, ".oculto.pdf")
     nombres = [r.name for r in preguntar.pendientes_sin_cifrar(carpeta_preguntar.ruta)]
     assert sorted(nombres) == ["ACTA.PDF", "contrato_temp.pdf"]
+
+
+def test_dar_de_baja_el_atendedor_despierta_al_que_espera(monkeypatch):
+    """Al parar el vigilante con un diálogo pedido y nunca despachado, quien
+    espera no puede quedarse los minutos del plazo: el proceso sale antes y el
+    PDF quedaría en claro, sin marcar."""
+    import threading
+    import time
+
+    monkeypatch.setattr(preguntar, "ESPERA_PREGUNTA", 3.0)
+    preguntar.registrar_atendedor(lambda peticion: None)  # nunca contesta
+    threading.Timer(0.1, preguntar.registrar_atendedor, args=(None,)).start()
+    inicio = time.monotonic()
+    try:
+        assert preguntar.pedir_clave("t", "x") == (None, False)
+    finally:
+        preguntar.registrar_atendedor(None)
+    assert time.monotonic() - inicio < 1.0

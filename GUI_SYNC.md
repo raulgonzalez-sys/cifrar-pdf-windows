@@ -57,11 +57,30 @@ declara un identificador de modelo de aplicación
 (`SetCurrentProcessExplicitAppUserModelID`) para que la ventana se agrupe con
 su acceso directo en la barra de tareas.
 
+`instalar_traductor_qt()`: instala `qtbase_es` forzado, para que los botones
+estándar de Qt («Sí», «No», «Aceptar»…) salgan en castellano. En KDE los
+traduce plasma-integration; en Windows nadie. Se llama tras crear la
+`QApplication` en `main()`. El vigilante instala el suyo (`cifrarpdf/vigilante.py`):
+son dos copias a propósito, para que `gui.py` siga sin depender de `cifrarpdf`
+en lo que no es del backend.
+
 Y el respaldo de iconos: en Debian, un nombre que no esté en el tema cae al
 logo de la fundación; aquí cae a los iconos estándar de Qt (`_ESTANDAR`) y, si
 tampoco hay, **se queda sin icono a propósito** — la barra muestra siempre el
 texto de la acción, y eso es mejor que colar un icono que no pega. El logo solo
 es el suelo del icono de carpeta, que es donde un hueco descuadraría la fila.
+
+## Cambios de interfaz pendientes de portar a Debian
+
+Dos arreglos de esta copia también tocan a Debian y están pendientes de portar
+allí (debian13-fisat#192):
+
+- Los separadores de la barra no reciben foco con Tab (se saltan en el bucle
+  de `_crear_barra` que pone `TabFocus`).
+- El nombre de la aplicación no se repite en los títulos: con
+  `setApplicationDisplayName`, Qt añade « — Cifrar PDF — FISAT» a todo título
+  que no termine así, así que los `QMessageBox` van con título `""`, y los
+  demás sin el nombre («Quitar todas», «Registro»).
 
 ## Qué NO se puede comprobar automáticamente
 

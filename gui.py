@@ -20,11 +20,12 @@ import os
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 try:
     from PyQt6.QtCore import (
-        Qt, QEvent, QSize, QFileSystemWatcher, QSettings, QTimer,
-        pyqtSignal,
+        Qt, QEvent, QLibraryInfo, QLocale, QSize, QFileSystemWatcher,
+        QSettings, QTimer, QTranslator, pyqtSignal,
     )
     from PyQt6.QtGui import (
         QAction, QFontDatabase, QFontInfo, QIcon, QKeySequence, QPainter,
@@ -678,7 +679,7 @@ class DialogoContrasena(QDialog):
 class DialogoRegistro(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Registro — Cifrar PDF")
+        self.setWindowTitle("Registro")
         self.setWindowIcon(tema("view-list-text", "text-x-generic"))
         self.resize(720, 460)
 
@@ -712,7 +713,7 @@ class DialogoRegistro(QDialog):
             self.texto.verticalScrollBar().maximum())
 
     def _limpiar(self):
-        if QMessageBox.question(self, "Cifrar PDF",
+        if QMessageBox.question(self, "",
                                 "¿Limpiar todo el registro?") \
                 == QMessageBox.StandardButton.Yes:
             try:
@@ -972,7 +973,11 @@ class Ventana(QMainWindow):
         # QToolBar crea sus botones con Qt::NoFocus, así que la barra entera
         # quedaba fuera del recorrido del Tab: sin ratón solo se circulaba
         # entre la lista y el botón del estado vacío.
+        # Los separadores también son widgets de la barra: sin saltarlos, el
+        # Tab pararía en un hueco que no hace nada.
         for accion in barra.actions():
+            if accion.isSeparator():
+                continue
             boton = barra.widgetForAction(accion)
             if boton is not None:
                 boton.setFocusPolicy(Qt.FocusPolicy.TabFocus)
@@ -1546,7 +1551,7 @@ class Ventana(QMainWindow):
         if fila is None:
             return
         if QMessageBox.warning(
-                self, "Cifrar PDF",
+                self, "",
                 f"¿Quitar la carpeta de cifrado «{fila['nombre']}»?\n\n"
                 "Se quitará de la lista y se borrará su contraseña guardada.",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
@@ -1556,7 +1561,7 @@ class Ventana(QMainWindow):
         args = ["--gui-remove", fila["id"]]
         if os.path.isdir(fila["carpeta"]):
             resp = QMessageBox.question(
-                self, "Cifrar PDF",
+                self, "",
                 f"¿Borrar también la carpeta «{fila['nombre']}» y todo su "
                 f"contenido del disco?\n\n{fila['carpeta']}",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
@@ -1574,7 +1579,7 @@ class Ventana(QMainWindow):
         if self.lista.count() == 0:
             return
         if QMessageBox.warning(
-                self, "Cifrar PDF — Quitar todas",
+                self, "Quitar todas",
                 "¿Quitar TODAS las carpetas de cifrado?\n\n"
                 "Se dejarán de cifrar y se borrarán sus contraseñas guardadas.",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
@@ -1584,7 +1589,7 @@ class Ventana(QMainWindow):
         args = ["--gui-remove-all"]
         if any(os.path.isdir(f["carpeta"]) for f in self._carpetas()):
             resp = QMessageBox.question(
-                self, "Cifrar PDF",
+                self, "",
                 "¿Borrar también las carpetas del Escritorio y todo su "
                 "contenido?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
@@ -1601,12 +1606,14 @@ class Ventana(QMainWindow):
     def ver_registro(self):
         DialogoRegistro(self).exec()
 
-    # Mensajes
+    # Mensajes. Título "" a propósito: con setApplicationDisplayName Qt añade
+    # « — Cifrar PDF — FISAT» a todo título que no termine así, y con el nombre
+    # puesto a mano salía repetido; vacío, pone solo el DisplayName.
     def _error(self, texto):
-        QMessageBox.critical(self, "Cifrar PDF", texto)
+        QMessageBox.critical(self, "", texto)
 
     def _aviso(self, texto):
-        QMessageBox.information(self, "Cifrar PDF", texto)
+        QMessageBox.information(self, "", texto)
 
 
 def _ruta_unica(destino):
@@ -1641,9 +1648,35 @@ def _identificar_en_barra_de_tareas():
         pass
 
 
+def instalar_traductor_qt(app):
+    """Pone en castellano los botones estándar de Qt («Sí», «No», «Aceptar»…).
+
+    En KDE los traduce plasma-integration; en Windows nadie, y salían en
+    inglés. Se fuerza el español de España y no el idioma del sistema porque
+    la interfaz entera está en castellano aunque Windows esté en inglés.
+    Devuelve el traductor, o None si no se encuentra qtbase_es.
+    """
+    import PyQt6
+
+    idioma = QLocale(QLocale.Language.Spanish, QLocale.Country.Spain)
+    carpetas = (
+        QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath),
+        # Donde lo deja PyInstaller, que no lleva el TranslationsPath de Qt.
+        str(Path(PyQt6.__file__).parent / "Qt6" / "translations"),
+    )
+    # Con padre (la app): si no, el recolector lo libera y se pierde.
+    traductor = QTranslator(app)
+    for carpeta in carpetas:
+        if traductor.load(idioma, "qtbase", "_", carpeta):
+            app.installTranslator(traductor)
+            return traductor
+    return None
+
+
 def main():
     _identificar_en_barra_de_tareas()
     app = QApplication(sys.argv)
+    instalar_traductor_qt(app)
     # El nombre de aplicación va SIN espacios: en Debian de él sale el
     # WM_CLASS de la ventana en X11. Lo que se ve escrito es el DisplayName,
     # que sí lleva el título bonito.

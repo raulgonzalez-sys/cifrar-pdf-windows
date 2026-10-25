@@ -36,6 +36,9 @@ PREFIJO_SIN_CIFRAR = "SIN-CIFRAR_"
 # dejar al vigilante esperando para siempre: el resto de PDF no se cifrarían.
 ESPERA_PREGUNTA = 180.0
 
+# Cada cuánto mira quien espera un diálogo si el vigilante se está parando.
+TROZO_ESPERA = 0.25
+
 # Vida de la contraseña de lote. Vive SOLO en memoria del vigilante y caduca;
 # nunca toca el disco — es la diferencia con el modo «fija».
 REUSO_TTL = 120.0
@@ -134,10 +137,17 @@ def _preguntar(tipo: str, titulo: str, texto: str,
     except Exception as error:  # noqa: BLE001 — un diálogo no tumba el vigilante
         rutas.log(f"AVISO: no se pudo mostrar el diálogo de contraseña: {error}")
         return None, False
-    if not peticion.atendida.wait(espera):
-        # Ni siquiera contestó el hilo de Qt: cuenta como plazo agotado.
-        rutas.log("Diálogo de contraseña sin respuesta a tiempo.")
-        return None, True
+    # Se espera a trozos: si el vigilante se para con la petición emitida pero
+    # sin despachar, nadie la contestará, y hay que soltar el PDF (marcado
+    # «SIN-CIFRAR_») antes de que el proceso salga.
+    limite = time.monotonic() + espera
+    while not peticion.atendida.wait(min(TROZO_ESPERA, max(0.0, limite - time.monotonic()))):
+        if _atendedor is None:
+            return None, False
+        if time.monotonic() >= limite:
+            # Ni siquiera contestó el hilo de Qt: cuenta como plazo agotado.
+            rutas.log("Diálogo de contraseña sin respuesta a tiempo.")
+            return None, True
     return peticion.resultado, peticion.caducada
 
 

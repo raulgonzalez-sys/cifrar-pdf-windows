@@ -234,3 +234,84 @@ def test_soltar_con_fallo_de_copia_dice_cuantos_y_limpia_la_copia(
     assert "malo.pdf" in avisos["error"][0]
     assert avisos["backend"] == [["--gui-asegurar"]]
     ventana.close()
+
+
+def test_los_separadores_de_la_barra_no_reciben_foco_con_tab(aplicacion):
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtWidgets import QToolBar
+
+    import gui
+    ventana = gui.Ventana()
+    barra = ventana.findChild(QToolBar)
+    separadores = [a for a in barra.actions() if a.isSeparator()]
+    assert separadores, "la barra debería tener separadores"
+    for accion in separadores:
+        widget = barra.widgetForAction(accion)
+        assert widget.focusPolicy() == Qt.FocusPolicy.NoFocus
+    for accion in barra.actions():
+        if not accion.isSeparator():
+            assert barra.widgetForAction(accion).focusPolicy() \
+                == Qt.FocusPolicy.TabFocus
+    ventana.close()
+
+
+def test_los_titulos_no_repiten_el_nombre_de_la_aplicacion(
+        aplicacion, tmp_path, monkeypatch):
+    """Con setApplicationDisplayName, Qt añade « — Cifrar PDF — FISAT» a todo
+    título que no termine así: los diálogos no deben llevar el nombre."""
+    from PyQt6.QtWidgets import QMessageBox
+
+    import gui
+    titulos = []
+
+    def espia(respuesta):
+        def _f(_padre, titulo, *args, **kwargs):
+            titulos.append(titulo)
+            return respuesta
+        return _f
+
+    Si = QMessageBox.StandardButton.Yes
+    monkeypatch.setattr(QMessageBox, "question", espia(Si))
+    monkeypatch.setattr(QMessageBox, "warning", espia(Si))
+    monkeypatch.setattr(QMessageBox, "critical", espia(None))
+    monkeypatch.setattr(QMessageBox, "information", espia(None))
+    monkeypatch.setattr(gui, "backend", lambda args: (0, "", ""))
+
+    carpeta = tmp_path / "Informes"
+    carpeta.mkdir()
+    ventana = gui.Ventana()
+    filas = [{"id": "inf", "nombre": "Informes", "carpeta": str(carpeta),
+              "existe": True, "tiene_clave": True, "modo": "fija", "n": 0}]
+    monkeypatch.setattr(ventana, "_carpetas", lambda: filas)
+    monkeypatch.setattr(ventana, "fila_seleccionada", lambda: filas[0])
+    monkeypatch.setattr(ventana, "refrescar", lambda: None)
+    monkeypatch.setattr(ventana.lista, "count", lambda: 1)
+
+    ventana.quitar()
+    ventana.quitar_todas()
+    ventana._error("x")
+    ventana._aviso("x")
+    monkeypatch.setattr(gui, "LOG_FILE", str(tmp_path / "registro.log"))
+    registro = gui.DialogoRegistro(ventana)
+    registro._limpiar()
+    titulo_registro = registro.windowTitle()
+    registro.close()
+    ventana.close()
+
+    assert len(titulos) == 7, titulos
+    for titulo in titulos + [titulo_registro]:
+        assert "Cifrar PDF" not in titulo, titulo
+
+
+def test_el_traductor_pone_en_castellano_los_botones_estandar(aplicacion):
+    """Sin qtbase_es, «Yes»/«No»/«OK» salen en inglés en Windows."""
+    from PyQt6.QtCore import QCoreApplication
+
+    import gui
+    traductor = gui.instalar_traductor_qt(aplicacion)
+    try:
+        assert traductor is not None
+        assert QCoreApplication.translate("QPlatformTheme", "&Yes") == "&Sí"
+    finally:
+        if traductor is not None:
+            aplicacion.removeTranslator(traductor)

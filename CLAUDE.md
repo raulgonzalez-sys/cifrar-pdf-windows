@@ -132,17 +132,32 @@ técnico. Los mensajes se escriben para ellas.
     acción. Se les pone `TabFocus` a mano al construirla.
 18. **Cambiar la clave o el modo no reinicia el vigilante.** Pararlo rechaza
     los diálogos abiertos, así que el PDF de OTRA carpeta que estaba
-    preguntando la contraseña acababa `SIN-CIFRAR_`. La clave y el modo se leen
-    al cifrar; al pasar a clave fija, `--gui-set-pass` deja el marcador
-    `barrer/<id>` y es el propio vigilante quien barre esa carpeta, en su único
-    hilo cifrador: nunca cifran dos procesos el mismo fichero. Solo añadir,
-    renombrar o quitar carpetas reinicia (`proceso.refrescar`). No se porta el
-    `SIN_CLAVE` de Debian (barrer cuando KWallet por fin responde): el
+    preguntando la contraseña acababa `SIN-CIFRAR_`. Para que acabe así y no en
+    claro, `salir()` da de baja el atendedor ANTES de rechazar los diálogos: si
+    no, el siguiente diálogo iría a un bucle de Qt que ya no despacha. La clave
+    y el modo se leen al cifrar; al pasar a clave fija, `--gui-set-pass` deja el
+    marcador `barrer/<id>` y es el propio vigilante quien barre esa carpeta, en
+    su único hilo cifrador: nunca cifran dos procesos el mismo fichero. Solo
+    añadir, renombrar o quitar carpetas reinicia (`proceso.refrescar`). No se
+    porta el `SIN_CLAVE` de Debian (barrer cuando KWallet por fin responde): el
     Administrador de credenciales no tiene ese retraso al iniciar sesión.
 19. **Solo los ocultos son nuestros.** El temporal propio es
     `.<nombre>.<pid>_temp.<ext>` y `limpiar_temporales` solo borra ocultos: un
     `contrato_temp.pdf` del usuario es un PDF más y se cifra. Ignorar o borrar
     por el sufijo `_temp.pdf` se comía PDF de verdad.
+20. **Un objeto con nombre de Win32 muere con su último handle.** Si el evento
+    de parada se abre y se cierra en cada consulta, casi nunca existe y
+    `pedir_parada` no lo encuentra: el vigilante con bandeja no se paraba. Lo
+    sujeta `Vigilancia` toda su vida. El CI no lo vio porque corría con
+    `CIFRARPDF_SIN_BANDEJA=1`.
+21. **`QInputDialog` ignora `setMinimumWidth`.** Su layout `SetMinAndMaxSize`
+    lo pisa al mostrarse. El mínimo se pone en la etiqueta y en alturas de
+    línea, no con `averageCharWidth`: la de Segoe UI es pequeña y 50
+    caracteres daban 322 px en Windows aunque en Linux salieran 422.
+22. **Los botones estándar de Qt salen en inglés sin `qtbase_es`.** En KDE los
+    traduce plasma-integration; en Windows nadie. El vigilante instala el
+    traductor en español forzado, PyInstaller empaqueta el `.qm` y el CI
+    comprueba que está.
 
 ## `gui.py` es un fork de la GUI de Debian
 
@@ -164,10 +179,14 @@ las ramas de plataforma del destino. Detalles en `GUI_SYNC.md`.
 
 ## Qué NO se puede verificar en CI
 
-El CI de `windows-latest` cubre el backend de verdad (credenciales, registro,
-cifrado, el `.exe` construido) y que la ventana se construye sin pantalla. **No
-cubre** nada visual ni de sesión real: iconos, notificaciones del área de
-notificación, autoarranque al iniciar sesión, el aviso de SmartScreen, ni el
-antivirus corporativo. Todo eso se comprueba a mano en un equipo (ver la fase 5
-de `PLAN.md`) y así hay que decirlo al informar: «pasa el CI» no es «probado en
-un puesto».
+`ci.yml` cubre el backend de verdad (credenciales, registro, cifrado, el `.exe`
+construido) y que la ventana se construye sin pantalla. `escritorio.yml`
+(`pruebas_escritorio/conducir.py`) maneja el `.exe` en el escritorio
+interactivo del runner: el vigilante con su icono en la bandeja, los diálogos
+del modo «preguntar» contestados con pywinauto (textos, ancho, botones en
+castellano, lote, PDF en uso, cancelar) y la parada real con un diálogo
+abierto. **Sigue sin cubrir**: el aviso de SmartScreen, el antivirus
+corporativo, el autoarranque al iniciar sesión, la apariencia en un Windows en
+español y el arrastre real desde el Explorador (se probó a mano, no queda en el
+CI). Eso se comprueba a mano en un equipo (ver la fase 5 de `PLAN.md`) y así
+hay que decirlo al informar: «pasa el CI» no es «probado en un puesto».
