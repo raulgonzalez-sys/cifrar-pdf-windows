@@ -306,6 +306,19 @@ def test_lo_ya_cifrado_no_espera_a_estar_completo(nominas, monkeypatch):
     assert esperas == []
 
 
+def test_el_evento_de_un_pdf_ya_cifrado_queda_en_el_registro(nominas, log):
+    """Como «procesar_pdf» del bash; el barrido, como «barrer_carpeta», calla."""
+    carpeta, mapa = nominas
+    protegido = pdf(carpeta.ruta, "uno.pdf")
+    assert cifrar.cifrar_en_sitio(protegido, "contraseña-larga")
+
+    vigilante._procesar_de_barrido(vigilante._DeBarrido(protegido, avisar=True), mapa)
+    assert "Ya cifrado" not in log.read_text(encoding="utf-8")
+
+    vigilante._procesar(protegido, mapa)
+    assert f"Ya cifrado, se omite: {protegido}" in log.read_text(encoding="utf-8")
+
+
 # --- Barrido con PDF en uso: no se espera, como el bash ----------------------
 
 @pytest.fixture

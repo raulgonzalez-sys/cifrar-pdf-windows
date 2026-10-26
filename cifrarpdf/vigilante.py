@@ -195,8 +195,10 @@ def _procesar(ruta: Path, mapa: dict[str, config.Carpeta]) -> None:
     # Lo ya cifrado se descarta antes de esperar (~2 s por fichero), como el
     # bash, que mira «qpdf --is-encrypted» antes que lsof. Leer se puede aunque
     # otro lo tenga abierto, así que un PDF protegido abierto en un visor
-    # tampoco espera.
+    # tampoco espera. Al registro, como «procesar_pdf» del bash; el filtro de
+    # los barridos calla, como «barrer_carpeta».
     if _ya_cifrado(ruta):
+        rutas.log(f"Ya cifrado, se omite: {ruta}")
         return
     if not espera.esperar_archivo(ruta):
         # Ese evento espera como mucho ESPERA_MAX: una marca más vieja que el
