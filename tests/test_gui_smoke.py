@@ -337,3 +337,36 @@ def test_el_traductor_pone_en_castellano_los_botones_estandar(aplicacion):
     finally:
         if traductor is not None:
             aplicacion.removeTranslator(traductor)
+
+
+def test_main_instala_el_traductor(aplicacion, monkeypatch):
+    """Que el traductor funcione no sirve de nada si main() no lo instala."""
+    from PyQt6.QtWidgets import QApplication
+
+    import gui
+
+    class LaMisma(QApplication):
+        """Devuelve la aplicación de los tests: no puede haber dos."""
+
+        def __new__(cls, *args, **kwargs):
+            return aplicacion
+
+    instaladas = []
+    monkeypatch.setattr(gui, "QApplication", LaMisma)
+    monkeypatch.setattr(gui, "instalar_traductor_qt", instaladas.append)
+    monkeypatch.setattr(gui, "backend", lambda *a, **k: (0, "", ""))
+    monkeypatch.setattr(QApplication, "exec", lambda *a: 0)
+    nombre = aplicacion.applicationName()
+    titulo = aplicacion.applicationDisplayName()
+    antes = set(QApplication.topLevelWidgets())
+    try:
+        with pytest.raises(SystemExit):
+            gui.main()
+    finally:
+        for widget in set(QApplication.topLevelWidgets()) - antes:
+            widget.close()
+            widget.deleteLater()
+        aplicacion.setApplicationName(nombre)
+        aplicacion.setApplicationDisplayName(titulo)
+
+    assert instaladas == [aplicacion]
