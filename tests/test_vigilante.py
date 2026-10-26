@@ -305,8 +305,10 @@ def test_el_barrido_inicial_no_espera_al_pdf_en_uso_y_avisa(nominas, cola, en_us
     assert "próximo inicio de sesión" in avisos[0]
 
 
-def test_el_barrido_a_peticion_no_espera_ni_avisa_del_pdf_en_uso(
+def test_el_barrido_a_peticion_no_espera_y_avisa_del_pdf_en_uso(
         nominas, cola, en_uso, log):
+    """Al poner contraseña fija, el PDF abierto en un visor no puede quedarse
+    en claro sin decirlo: después no llega ningún evento que lo recoja."""
     carpeta, mapa = nominas
     abierto = pdf(carpeta.ruta, "uno.pdf")
     proceso.pedir_barrido("nominas")
@@ -315,9 +317,12 @@ def test_el_barrido_a_peticion_no_espera_ni_avisa_del_pdf_en_uso(
     atender_todo(cola, mapa)
 
     assert en_uso["esperas"] == []
-    assert en_uso["errores"] == []
+    assert not cifrar.ya_cifrado(abierto)
     assert (f"Barrido: se omite, en uso por otro programa: {abierto}"
             in log.read_text(encoding="utf-8"))
+    avisos = [x for _t, x in en_uso["errores"] if "«uno.pdf»" in x]
+    assert len(avisos) == 1, en_uso["errores"]
+    assert "próximo inicio de sesión" in avisos[0]
 
 
 def test_lo_ya_cifrado_y_abierto_en_un_visor_no_espera(nominas, en_uso):

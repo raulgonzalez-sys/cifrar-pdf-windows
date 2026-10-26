@@ -46,8 +46,8 @@ class _DeBarrido(NamedTuple):
     """Un PDF que encontró un barrido, no un evento.
 
     Si está en uso no se le espera: no hay evento que lo vuelva a traer, y un
-    PDF abierto en un visor retendría 60 s la cola entera. «avisar» lo lleva
-    solo el barrido inicial, como en el bash.
+    PDF abierto en un visor retendría 60 s la cola entera. Con «avisar» se
+    dice que se ha quedado sin cifrar.
     """
 
     ruta: Path
@@ -138,8 +138,11 @@ def _barrer_por_aviso(cid: str, cola: queue.Queue,
         if actual is None or actual.pregunta:
             return
         rutas.log(f"Barrido a petición en «{carpeta.nombre}».")
+        # El bash no avisa aquí, pero en Linux nada bloquea el PDF. En Windows
+        # un visor sí, y después no llega ningún evento que lo recoja: sin
+        # aviso quedaría en claro sin decirlo.
         for entrada in _pdfs_visibles(carpeta.ruta):
-            cola.put(_DeBarrido(entrada, avisar=False))
+            cola.put(_DeBarrido(entrada, avisar=True))
         return
 
 
@@ -166,7 +169,7 @@ def _ya_cifrado(ruta: Path) -> bool:
 def _procesar_de_barrido(pendiente: _DeBarrido,
                          mapa: dict[str, config.Carpeta]) -> None:
     """Paridad con «barrer_carpeta» del bash: lo cifrado fuera, y lo que esté en
-    uso se omite sin esperar (avisando si es el barrido inicial)."""
+    uso se omite sin esperar (avisando si el barrido lo pide)."""
     ruta = pendiente.ruta
     if _carpeta_de(ruta, mapa) is None or not ruta.is_file() or _ya_cifrado(ruta):
         return
