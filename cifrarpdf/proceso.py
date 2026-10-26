@@ -221,10 +221,11 @@ def parar(espera: float = 10.0) -> bool:
 
 
 def pedir_barrido(cid: str) -> bool:
-    """Pide al vigilante que barra la carpeta «cid», que acaba de recibir clave fija.
+    """Avisa al vigilante de que la clave o el modo de la carpeta «cid» han cambiado.
 
-    Solo avisa: cifra el vigilante, para que dos procesos no cifren el mismo
-    fichero a la vez. Si no hay vigilante, el que arranque la barre al empezar.
+    Olvida su contraseña de lote y, si es «fija», la barre. Solo avisa: cifra
+    el vigilante, para que dos procesos no cifren el mismo fichero a la vez.
+    Si no hay vigilante, el que arranque la barre al empezar.
     Un id vacío, oculto o con separadores saldría de `barrer_dir`: se rechaza.
     """
     if not cid or cid.startswith(".") or "/" in cid or "\\" in cid:
@@ -247,7 +248,9 @@ def refrescar() -> None:
     queda en marcha con la lista al día y el autoarranque puesto; si no queda
     ninguna, se para y se quita el autoarranque — quien deja de usar la
     herramienta no se queda con nada arrancando en cada inicio de sesión.
-    Cambiar la clave o el modo no lo necesita: el vigilante los lee al cifrar.
+    Cambiar la clave o el modo no lo necesita (el vigilante los lee al
+    cifrar), salvo si la carpeta ya no está en el disco: solo se recrea al
+    arrancar.
     """
     parar()
     if config.hay_carpetas():

@@ -1331,7 +1331,8 @@ class Ventana(QMainWindow):
                 "No se copian los PDF ocultos (su nombre empieza por «.»): "
                 "no se cifrarían. Quítales el punto del principio y vuelve "
                 f"a soltarlos.\n\n{lista}")
-        if fallidos or ocultos:
+        # Tras el aviso de los ocultos, la barra confirma los que sí se copiaron.
+        if fallidos or (ocultos and not copiados):
             return
         if copiados:
             s = "s" if copiados > 1 else ""

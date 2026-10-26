@@ -303,13 +303,31 @@ def test_set_pass_en_fija_pide_barrido_sin_reiniciar(capsys, monkeypatch, sin_ke
     assert llamadas == ["barrer informes", "asegurar"]
 
 
-def test_set_pass_en_preguntar_no_reinicia(monkeypatch, sin_keyring, llamadas):
+def test_set_pass_en_preguntar_avisa_sin_reiniciar(monkeypatch, sin_keyring, llamadas):
+    """El aviso no barre (la carpeta pregunta), pero olvida la contraseña de
+    lote que el vigilante tuviera en memoria."""
     entrada(monkeypatch, "contraseña-larga")
     cli.main(["--gui-add", "Informes"])
     llamadas.clear()
 
     assert cli.main(["--gui-set-pass", "informes", "--modo", "preguntar"]) == 0
-    assert llamadas == ["asegurar"]
+    assert llamadas == ["barrer informes", "asegurar"]
+
+
+@pytest.mark.parametrize("modo", ["fija", "preguntar"])
+def test_set_pass_sobre_carpeta_borrada_la_recrea_reiniciando(
+        monkeypatch, escritorio, sin_keyring, llamadas, modo):
+    """Sin la carpeta en el disco, el vigilante no la vigila: solo un arranque
+    la vuelve a crear y a vigilar."""
+    entrada(monkeypatch, "contraseña-larga")
+    cli.main(["--gui-add", "Informes"])
+    (escritorio / "Informes").rmdir()
+    llamadas.clear()
+
+    entrada(monkeypatch, "otra-contraseña")
+    assert cli.main(["--gui-set-pass", "informes", "--modo", modo]) == 0
+    assert llamadas == ["refrescar"]
+    assert config.leer("informes").modo == modo
 
 
 def test_remove_all_borra_los_avisos_de_barrido(monkeypatch, sin_keyring):

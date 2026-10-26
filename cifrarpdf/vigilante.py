@@ -23,6 +23,7 @@ import queue
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import NamedTuple
 
@@ -37,17 +38,18 @@ ESPERA_COLA = 0.5
 # Contraseñas de lote del modo «preguntar»: en memoria y con caducidad.
 _lote = preguntar.Lote()
 
-# PDF que el lote omitió por estar en uso y de los que ya se avisó (por
-# `_clave`). Su propio evento sigue en la cola: si falla, no se avisa otra vez.
-_avisados_lote: set[str] = set()
+# PDF que el lote omitió por estar en uso y de los que ya se avisó: `_clave` →
+# `time.monotonic()` del aviso. Su propio evento sigue en la cola: si falla, no
+# se avisa otra vez. La marca caduca: solo cubre ese evento de la misma tanda.
+_avisados_lote: dict[str, float] = {}
 
 
 class _DeBarrido(NamedTuple):
     """Un PDF que encontró un barrido, no un evento.
 
     Si está en uso no se le espera: no hay evento que lo vuelva a traer, y un
-    PDF abierto en un visor retendría 60 s la cola entera. «avisar» lo lleva
-    solo el barrido inicial, como en el bash.
+    PDF abierto en un visor retendría 60 s la cola entera. Con «avisar» se
+    dice que se ha quedado sin cifrar.
     """
 
     ruta: Path
@@ -119,7 +121,10 @@ def _atender(elemento: Path | _DeBarrido, cola: queue.Queue,
 
 def _barrer_por_aviso(cid: str, cola: queue.Queue,
                       mapa: dict[str, config.Carpeta]) -> None:
-    """Aviso de barrido de la carpeta «cid»: encola sus PDF si sigue en «fija».
+    """Aviso de que la clave o el modo de la carpeta «cid» han cambiado.
+
+    Se olvida su contraseña de lote, que sería la de antes, y si sigue en
+    «fija» se encolan sus PDF.
 
     Borrar el marcador hace de turno: si el aviso llega dos veces (el evento y
     el repaso del arranque), el segundo ya no lo encuentra y no barre. Si no
@@ -131,6 +136,7 @@ def _barrer_por_aviso(cid: str, cola: queue.Queue,
         return
     except OSError:
         pass
+    _lote.olvidar(cid)
     for carpeta in mapa.values():
         if carpeta.id != cid:
             continue
@@ -138,8 +144,11 @@ def _barrer_por_aviso(cid: str, cola: queue.Queue,
         if actual is None or actual.pregunta:
             return
         rutas.log(f"Barrido a petición en «{carpeta.nombre}».")
+        # El bash no avisa aquí, pero en Linux nada bloquea el PDF. En Windows
+        # un visor sí, y después no llega ningún evento que lo recoja: sin
+        # aviso quedaría en claro sin decirlo.
         for entrada in _pdfs_visibles(carpeta.ruta):
-            cola.put(_DeBarrido(entrada, avisar=False))
+            cola.put(_DeBarrido(entrada, avisar=True))
         return
 
 
@@ -166,7 +175,7 @@ def _ya_cifrado(ruta: Path) -> bool:
 def _procesar_de_barrido(pendiente: _DeBarrido,
                          mapa: dict[str, config.Carpeta]) -> None:
     """Paridad con «barrer_carpeta» del bash: lo cifrado fuera, y lo que esté en
-    uso se omite sin esperar (avisando si es el barrido inicial)."""
+    uso se omite sin esperar (avisando si el barrido lo pide)."""
     ruta = pendiente.ruta
     if _carpeta_de(ruta, mapa) is None or not ruta.is_file() or _ya_cifrado(ruta):
         return
@@ -190,12 +199,16 @@ def _procesar(ruta: Path, mapa: dict[str, config.Carpeta]) -> None:
     # Lo ya cifrado se descarta antes de esperar (~2 s por fichero), como el
     # bash, que mira «qpdf --is-encrypted» antes que lsof. Leer se puede aunque
     # otro lo tenga abierto, así que un PDF protegido abierto en un visor
-    # tampoco espera.
+    # tampoco espera. Al registro, como «procesar_pdf» del bash; el filtro de
+    # los barridos calla, como «barrer_carpeta».
     if _ya_cifrado(ruta):
+        rutas.log(f"Ya cifrado, se omite: {ruta}")
         return
     if not espera.esperar_archivo(ruta):
-        if _clave(ruta) in _avisados_lote:
-            _avisados_lote.discard(_clave(ruta))
+        # Ese evento espera como mucho ESPERA_MAX: una marca más vieja que el
+        # reuso del lote es de un evento que nunca llegó, y no silencia nada.
+        avisado = _avisados_lote.pop(_clave(ruta), None)
+        if avisado is not None and time.monotonic() - avisado < preguntar.REUSO_TTL:
             rutas.log(f"Sigue en uso, ya avisado en el lote: {ruta}")
             return
         notificar.error(
@@ -233,7 +246,7 @@ def _cifrar_y_avisar(ruta: Path, clave: str, avisar: bool = True) -> bool:
     except cifrar.ErrorCifrado as error:
         notificar.error("Error al cifrar PDF", str(error))
         return False
-    _avisados_lote.discard(_clave(ruta))
+    _avisados_lote.pop(_clave(ruta), None)
     # Ya protegido: si venía marcado como sin cifrar, recupera su nombre limpio.
     final = preguntar.limpiar_prefijo(ruta)
     if avisar:
@@ -333,7 +346,7 @@ def _procesar_preguntando(ruta: Path, carpeta: config.Carpeta) -> None:
         # curso: mejor un aviso de más que un PDF en claro sin decirlo.
         for omitido in omitidos:
             if omitido.is_file():
-                _avisados_lote.add(_clave(omitido))
+                _avisados_lote[_clave(omitido)] = time.monotonic()
                 notificar.error(
                     "Cifrar PDF",
                     f"«{preguntar.recortar_nombre(omitido.name)}» sigue abierto "

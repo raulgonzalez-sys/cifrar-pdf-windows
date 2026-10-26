@@ -135,11 +135,13 @@ técnico. Los mensajes se escriben para ellas.
     preguntando la contraseña acababa `SIN-CIFRAR_`. Para que acabe así y no en
     claro, `salir()` da de baja el atendedor ANTES de rechazar los diálogos: si
     no, el siguiente diálogo iría a un bucle de Qt que ya no despacha. La clave
-    y el modo se leen al cifrar; al pasar a clave fija, `--gui-set-pass` deja el
-    marcador `barrer/<id>` y es el propio vigilante quien barre esa carpeta, en
-    su único hilo cifrador: nunca cifran dos procesos el mismo fichero. Solo
-    añadir, renombrar o quitar carpetas reinicia (`proceso.refrescar`). No se
-    porta el `SIN_CLAVE` de Debian (barrer cuando KWallet por fin responde): el
+    y el modo se leen al cifrar; `--gui-set-pass` deja el marcador
+    `barrer/<id>` («ha cambiado») y el vigilante olvida la contraseña de lote
+    de esa carpeta y, si es fija, la barre él, en su único hilo cifrador: nunca
+    cifran dos procesos el mismo fichero. Solo añadir, renombrar o quitar
+    carpetas reinicia (`proceso.refrescar`), y cambiar la de una carpeta
+    borrada del disco, que solo se recrea al arrancar. No se porta el
+    `SIN_CLAVE` de Debian (barrer cuando KWallet por fin responde): el
     Administrador de credenciales no tiene ese retraso al iniciar sesión.
 19. **Solo los ocultos son nuestros.** El temporal propio es
     `.<nombre>.<pid>_temp.<ext>` y `limpiar_temporales` solo borra ocultos: un

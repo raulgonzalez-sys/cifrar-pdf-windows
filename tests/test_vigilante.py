@@ -102,6 +102,27 @@ def test_un_marcador_de_una_carpeta_en_preguntar_se_ignora(nominas, cola):
     assert not marcador.exists()
 
 
+def test_un_marcador_olvida_el_lote_de_la_carpeta_sin_barrerla(
+        escritorio, sin_keyring, cola, monkeypatch):
+    """Cambiar la clave o el modo no puede dejar viva la contraseña de lote
+    que se dio antes: el siguiente PDF tiene que volver a preguntar."""
+    ruta = escritorio / "Informes"
+    ruta.mkdir()
+    config.escribir("informes", "Informes", ruta, "preguntar")
+    carpeta = config.leer("informes")
+    mapa = {vigilante._clave(ruta): carpeta}
+    pdf(ruta, "uno.pdf")
+    lote = preguntar.Lote()
+    lote.guardar("informes", "contraseña-vieja")
+    monkeypatch.setattr(vigilante, "_lote", lote)
+    proceso.pedir_barrido("informes")
+
+    vigilante._atender(rutas.barrer_dir() / "informes", cola, mapa)
+
+    assert lote.vigente("informes") is None
+    assert cola.empty()
+
+
 def test_un_marcador_de_una_carpeta_desconocida_se_ignora(nominas, cola):
     _carpeta, mapa = nominas
     proceso.pedir_barrido("fantasma")
@@ -156,9 +177,11 @@ def atendedor():
 
     preguntar.registrar_atendedor(contestar)
     vigilante._lote = preguntar.Lote()
+    vigilante._avisados_lote.clear()
     yield
     preguntar.registrar_atendedor(None)
     vigilante._lote = preguntar.Lote()
+    vigilante._avisados_lote.clear()
 
 
 def test_el_lote_salta_el_pendiente_que_aun_se_escribe(
@@ -234,6 +257,36 @@ def test_el_omitido_del_lote_no_se_avisa_otra_vez_por_su_evento(
     assert len([x for _t, x in errores if "«dos.pdf»" in x]) == 2
 
 
+def test_la_marca_de_ya_avisado_en_el_lote_caduca(
+        escritorio, sin_keyring, atendedor, monkeypatch, log):
+    """La marca cubre el evento de la misma tanda, que espera como mucho
+    ESPERA_MAX. Si nadie la consume, un fallo de horas después no puede
+    quedarse sin aviso."""
+    import time
+
+    from cifrarpdf import notificar
+    ruta = escritorio / "Informes"
+    ruta.mkdir()
+    config.escribir("informes", "Informes", ruta, "preguntar")
+    carpeta = config.leer("informes")
+    mapa = {vigilante._clave(ruta): carpeta}
+    soltado = pdf(ruta, "uno.pdf")
+    abierto = pdf(ruta, "dos.pdf")
+    monkeypatch.setattr(espera, "bloqueado", lambda r: r.name == "dos.pdf")
+    monkeypatch.setattr(espera, "esperar_archivo", lambda r, *a, **k: False)
+    errores = []
+    monkeypatch.setattr(notificar, "error", lambda t, x: errores.append((t, x)))
+
+    vigilante._procesar_preguntando(soltado, carpeta)
+    real = time.monotonic
+    with monkeypatch.context() as m:
+        m.setattr(time, "monotonic", lambda: real() + preguntar.REUSO_TTL + 1)
+        vigilante._procesar(abierto, mapa)
+
+    assert len([x for _t, x in errores if "«dos.pdf»" in x]) == 2, errores
+    assert "ya avisado en el lote" not in log.read_text(encoding="utf-8")
+
+
 def test_un_aviso_que_llega_mientras_lee_las_carpetas_no_se_pierde(
         escritorio, sin_keyring, monkeypatch, log):
     """El paso a fija llega justo cuando el vigilante ya leyó la carpeta en
@@ -274,6 +327,19 @@ def test_lo_ya_cifrado_no_espera_a_estar_completo(nominas, monkeypatch):
     assert esperas == []
 
 
+def test_el_evento_de_un_pdf_ya_cifrado_queda_en_el_registro(nominas, log):
+    """Como «procesar_pdf» del bash; el barrido, como «barrer_carpeta», calla."""
+    carpeta, mapa = nominas
+    protegido = pdf(carpeta.ruta, "uno.pdf")
+    assert cifrar.cifrar_en_sitio(protegido, "contraseña-larga")
+
+    vigilante._procesar_de_barrido(vigilante._DeBarrido(protegido, avisar=True), mapa)
+    assert "Ya cifrado" not in log.read_text(encoding="utf-8")
+
+    vigilante._procesar(protegido, mapa)
+    assert f"Ya cifrado, se omite: {protegido}" in log.read_text(encoding="utf-8")
+
+
 # --- Barrido con PDF en uso: no se espera, como el bash ----------------------
 
 @pytest.fixture
@@ -305,8 +371,10 @@ def test_el_barrido_inicial_no_espera_al_pdf_en_uso_y_avisa(nominas, cola, en_us
     assert "próximo inicio de sesión" in avisos[0]
 
 
-def test_el_barrido_a_peticion_no_espera_ni_avisa_del_pdf_en_uso(
+def test_el_barrido_a_peticion_no_espera_y_avisa_del_pdf_en_uso(
         nominas, cola, en_uso, log):
+    """Al poner contraseña fija, el PDF abierto en un visor no puede quedarse
+    en claro sin decirlo: después no llega ningún evento que lo recoja."""
     carpeta, mapa = nominas
     abierto = pdf(carpeta.ruta, "uno.pdf")
     proceso.pedir_barrido("nominas")
@@ -315,9 +383,12 @@ def test_el_barrido_a_peticion_no_espera_ni_avisa_del_pdf_en_uso(
     atender_todo(cola, mapa)
 
     assert en_uso["esperas"] == []
-    assert en_uso["errores"] == []
+    assert not cifrar.ya_cifrado(abierto)
     assert (f"Barrido: se omite, en uso por otro programa: {abierto}"
             in log.read_text(encoding="utf-8"))
+    avisos = [x for _t, x in en_uso["errores"] if "«uno.pdf»" in x]
+    assert len(avisos) == 1, en_uso["errores"]
+    assert "próximo inicio de sesión" in avisos[0]
 
 
 def test_lo_ya_cifrado_y_abierto_en_un_visor_no_espera(nominas, en_uso):
