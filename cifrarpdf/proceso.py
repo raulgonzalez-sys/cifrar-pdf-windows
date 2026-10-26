@@ -247,7 +247,9 @@ def refrescar() -> None:
     queda en marcha con la lista al día y el autoarranque puesto; si no queda
     ninguna, se para y se quita el autoarranque — quien deja de usar la
     herramienta no se queda con nada arrancando en cada inicio de sesión.
-    Cambiar la clave o el modo no lo necesita: el vigilante los lee al cifrar.
+    Cambiar la clave o el modo no lo necesita (el vigilante los lee al
+    cifrar), salvo si la carpeta ya no está en el disco: solo se recrea al
+    arrancar.
     """
     parar()
     if config.hay_carpetas():

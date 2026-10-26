@@ -188,27 +188,31 @@ def gui_set_pass(*argumentos: str) -> int:
 
     # Pasar a «preguntar» no es solo cambiar el modo: hay que BORRAR lo que
     # hubiera guardado, o quedaría una contraseña en el Administrador de
-    # credenciales que ya nadie usa. El vigilante no se reinicia en ningún
-    # caso: lee la clave y el modo al cifrar.
+    # credenciales que ya nadie usa.
     if modo == config.MODO_PREGUNTAR:
         config.escribir(cid, carpeta.nombre, carpeta.ruta, modo)
         secreto.borrar(cid)
         rutas.log(f"Modo «preguntar cada vez» activado: {carpeta.nombre}")
-        proceso.asegurar()
-        print("OK")
-        return 0
+    else:
+        clave = _leer_clave()
+        problema = secreto.validar_clave(clave)
+        if problema:
+            return _err(f"Contraseña inválida: {problema}")
+        if not secreto.guardar(cid, clave):
+            return _err("No se pudo guardar la contraseña.")
+        config.escribir(cid, carpeta.nombre, carpeta.ruta, config.MODO_FIJA)
+        rutas.log(f"Contraseña actualizada: {carpeta.nombre}")
 
-    clave = _leer_clave()
-    problema = secreto.validar_clave(clave)
-    if problema:
-        return _err(f"Contraseña inválida: {problema}")
-    if not secreto.guardar(cid, clave):
-        return _err("No se pudo guardar la contraseña.")
-    config.escribir(cid, carpeta.nombre, carpeta.ruta, config.MODO_FIJA)
-    rutas.log(f"Contraseña actualizada: {carpeta.nombre}")
-    # Lo que ya hubiera dentro se cifra ahora: lo barre el vigilante.
-    proceso.pedir_barrido(cid)
-    proceso.asegurar()
+    if not carpeta.ruta.is_dir():
+        # Una carpeta borrada del disco ya no se vigila: solo al arrancar el
+        # vigilante la vuelve a crear y a vigilar.
+        proceso.refrescar()
+    else:
+        # El vigilante no se reinicia: lee la clave y el modo al cifrar. Lo
+        # que ya hubiera dentro de una fija lo barre él.
+        if modo == config.MODO_FIJA:
+            proceso.pedir_barrido(cid)
+        proceso.asegurar()
     print("OK")
     return 0
 

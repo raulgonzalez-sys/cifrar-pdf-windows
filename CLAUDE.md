@@ -138,7 +138,9 @@ técnico. Los mensajes se escriben para ellas.
     y el modo se leen al cifrar; al pasar a clave fija, `--gui-set-pass` deja el
     marcador `barrer/<id>` y es el propio vigilante quien barre esa carpeta, en
     su único hilo cifrador: nunca cifran dos procesos el mismo fichero. Solo
-    añadir, renombrar o quitar carpetas reinicia (`proceso.refrescar`). No se
+    añadir, renombrar o quitar carpetas reinicia (`proceso.refrescar`), y
+    cambiar la de una carpeta borrada del disco, que solo se recrea al
+    arrancar. No se
     porta el `SIN_CLAVE` de Debian (barrer cuando KWallet por fin responde): el
     Administrador de credenciales no tiene ese retraso al iniciar sesión.
 19. **Solo los ocultos son nuestros.** El temporal propio es
