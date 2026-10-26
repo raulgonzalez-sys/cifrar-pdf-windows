@@ -156,9 +156,11 @@ def atendedor():
 
     preguntar.registrar_atendedor(contestar)
     vigilante._lote = preguntar.Lote()
+    vigilante._avisados_lote.clear()
     yield
     preguntar.registrar_atendedor(None)
     vigilante._lote = preguntar.Lote()
+    vigilante._avisados_lote.clear()
 
 
 def test_el_lote_salta_el_pendiente_que_aun_se_escribe(
@@ -232,6 +234,36 @@ def test_el_omitido_del_lote_no_se_avisa_otra_vez_por_su_evento(
     # Avisado una vez, no para siempre: la próxima vez que falle se avisa.
     vigilante._procesar(abierto, mapa)
     assert len([x for _t, x in errores if "«dos.pdf»" in x]) == 2
+
+
+def test_la_marca_de_ya_avisado_en_el_lote_caduca(
+        escritorio, sin_keyring, atendedor, monkeypatch, log):
+    """La marca cubre el evento de la misma tanda, que espera como mucho
+    ESPERA_MAX. Si nadie la consume, un fallo de horas después no puede
+    quedarse sin aviso."""
+    import time
+
+    from cifrarpdf import notificar
+    ruta = escritorio / "Informes"
+    ruta.mkdir()
+    config.escribir("informes", "Informes", ruta, "preguntar")
+    carpeta = config.leer("informes")
+    mapa = {vigilante._clave(ruta): carpeta}
+    soltado = pdf(ruta, "uno.pdf")
+    abierto = pdf(ruta, "dos.pdf")
+    monkeypatch.setattr(espera, "bloqueado", lambda r: r.name == "dos.pdf")
+    monkeypatch.setattr(espera, "esperar_archivo", lambda r, *a, **k: False)
+    errores = []
+    monkeypatch.setattr(notificar, "error", lambda t, x: errores.append((t, x)))
+
+    vigilante._procesar_preguntando(soltado, carpeta)
+    real = time.monotonic
+    with monkeypatch.context() as m:
+        m.setattr(time, "monotonic", lambda: real() + preguntar.REUSO_TTL + 1)
+        vigilante._procesar(abierto, mapa)
+
+    assert len([x for _t, x in errores if "«dos.pdf»" in x]) == 2, errores
+    assert "ya avisado en el lote" not in log.read_text(encoding="utf-8")
 
 
 def test_un_aviso_que_llega_mientras_lee_las_carpetas_no_se_pierde(

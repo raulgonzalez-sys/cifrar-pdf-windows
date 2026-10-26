@@ -23,6 +23,7 @@ import queue
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import NamedTuple
 
@@ -37,9 +38,10 @@ ESPERA_COLA = 0.5
 # Contraseñas de lote del modo «preguntar»: en memoria y con caducidad.
 _lote = preguntar.Lote()
 
-# PDF que el lote omitió por estar en uso y de los que ya se avisó (por
-# `_clave`). Su propio evento sigue en la cola: si falla, no se avisa otra vez.
-_avisados_lote: set[str] = set()
+# PDF que el lote omitió por estar en uso y de los que ya se avisó: `_clave` →
+# `time.monotonic()` del aviso. Su propio evento sigue en la cola: si falla, no
+# se avisa otra vez. La marca caduca: solo cubre ese evento de la misma tanda.
+_avisados_lote: dict[str, float] = {}
 
 
 class _DeBarrido(NamedTuple):
@@ -197,8 +199,10 @@ def _procesar(ruta: Path, mapa: dict[str, config.Carpeta]) -> None:
     if _ya_cifrado(ruta):
         return
     if not espera.esperar_archivo(ruta):
-        if _clave(ruta) in _avisados_lote:
-            _avisados_lote.discard(_clave(ruta))
+        # Ese evento espera como mucho ESPERA_MAX: una marca más vieja que el
+        # reuso del lote es de un evento que nunca llegó, y no silencia nada.
+        avisado = _avisados_lote.pop(_clave(ruta), None)
+        if avisado is not None and time.monotonic() - avisado < preguntar.REUSO_TTL:
             rutas.log(f"Sigue en uso, ya avisado en el lote: {ruta}")
             return
         notificar.error(
@@ -236,7 +240,7 @@ def _cifrar_y_avisar(ruta: Path, clave: str, avisar: bool = True) -> bool:
     except cifrar.ErrorCifrado as error:
         notificar.error("Error al cifrar PDF", str(error))
         return False
-    _avisados_lote.discard(_clave(ruta))
+    _avisados_lote.pop(_clave(ruta), None)
     # Ya protegido: si venía marcado como sin cifrar, recupera su nombre limpio.
     final = preguntar.limpiar_prefijo(ruta)
     if avisar:
@@ -336,7 +340,7 @@ def _procesar_preguntando(ruta: Path, carpeta: config.Carpeta) -> None:
         # curso: mejor un aviso de más que un PDF en claro sin decirlo.
         for omitido in omitidos:
             if omitido.is_file():
-                _avisados_lote.add(_clave(omitido))
+                _avisados_lote[_clave(omitido)] = time.monotonic()
                 notificar.error(
                     "Cifrar PDF",
                     f"«{preguntar.recortar_nombre(omitido.name)}» sigue abierto "
