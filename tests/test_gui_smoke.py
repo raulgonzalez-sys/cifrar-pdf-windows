@@ -203,6 +203,28 @@ def test_soltar_un_pdf_oculto_avisa_y_no_lo_copia(
     ventana.close()
 
 
+def test_soltar_validos_y_ocultos_confirma_los_copiados(
+        aplicacion, tmp_path, monkeypatch):
+    """El aviso de los ocultos no puede tapar que los demás sí se copiaron."""
+    origen = tmp_path / "origen"
+    destino = tmp_path / "destino"
+    origen.mkdir()
+    destino.mkdir()
+    bueno = origen / "bueno.pdf"
+    oculto = origen / ".secreto.pdf"
+    bueno.write_bytes(b"%PDF-")
+    oculto.write_bytes(b"%PDF-")
+    ventana, avisos = _ventana_con_carpeta(monkeypatch, destino)
+
+    ventana._soltar_pdfs("inf", [str(bueno), str(oculto)])
+
+    assert sorted(p.name for p in destino.iterdir()) == ["bueno.pdf"]
+    assert len(avisos["aviso"]) == 1 and ".secreto.pdf" in avisos["aviso"][0]
+    assert ventana.statusBar().currentMessage().startswith(
+        "Copiado 1 PDF a «Informes»")
+    ventana.close()
+
+
 def test_soltar_con_fallo_de_copia_dice_cuantos_y_limpia_la_copia(
         aplicacion, tmp_path, monkeypatch):
     import shutil
