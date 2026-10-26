@@ -303,13 +303,15 @@ def test_set_pass_en_fija_pide_barrido_sin_reiniciar(capsys, monkeypatch, sin_ke
     assert llamadas == ["barrer informes", "asegurar"]
 
 
-def test_set_pass_en_preguntar_no_reinicia(monkeypatch, sin_keyring, llamadas):
+def test_set_pass_en_preguntar_avisa_sin_reiniciar(monkeypatch, sin_keyring, llamadas):
+    """El aviso no barre (la carpeta pregunta), pero olvida la contraseña de
+    lote que el vigilante tuviera en memoria."""
     entrada(monkeypatch, "contraseña-larga")
     cli.main(["--gui-add", "Informes"])
     llamadas.clear()
 
     assert cli.main(["--gui-set-pass", "informes", "--modo", "preguntar"]) == 0
-    assert llamadas == ["asegurar"]
+    assert llamadas == ["barrer informes", "asegurar"]
 
 
 @pytest.mark.parametrize("modo", ["fija", "preguntar"])

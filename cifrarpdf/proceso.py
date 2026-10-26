@@ -221,10 +221,11 @@ def parar(espera: float = 10.0) -> bool:
 
 
 def pedir_barrido(cid: str) -> bool:
-    """Pide al vigilante que barra la carpeta «cid», que acaba de recibir clave fija.
+    """Avisa al vigilante de que la clave o el modo de la carpeta «cid» han cambiado.
 
-    Solo avisa: cifra el vigilante, para que dos procesos no cifren el mismo
-    fichero a la vez. Si no hay vigilante, el que arranque la barre al empezar.
+    Olvida su contraseña de lote y, si es «fija», la barre. Solo avisa: cifra
+    el vigilante, para que dos procesos no cifren el mismo fichero a la vez.
+    Si no hay vigilante, el que arranque la barre al empezar.
     Un id vacío, oculto o con separadores saldría de `barrer_dir`: se rechaza.
     """
     if not cid or cid.startswith(".") or "/" in cid or "\\" in cid:

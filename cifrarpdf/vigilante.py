@@ -121,7 +121,10 @@ def _atender(elemento: Path | _DeBarrido, cola: queue.Queue,
 
 def _barrer_por_aviso(cid: str, cola: queue.Queue,
                       mapa: dict[str, config.Carpeta]) -> None:
-    """Aviso de barrido de la carpeta «cid»: encola sus PDF si sigue en «fija».
+    """Aviso de que la clave o el modo de la carpeta «cid» han cambiado.
+
+    Se olvida su contraseña de lote, que sería la de antes, y si sigue en
+    «fija» se encolan sus PDF.
 
     Borrar el marcador hace de turno: si el aviso llega dos veces (el evento y
     el repaso del arranque), el segundo ya no lo encuentra y no barre. Si no
@@ -133,6 +136,7 @@ def _barrer_por_aviso(cid: str, cola: queue.Queue,
         return
     except OSError:
         pass
+    _lote.olvidar(cid)
     for carpeta in mapa.values():
         if carpeta.id != cid:
             continue

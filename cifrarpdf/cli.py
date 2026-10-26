@@ -208,10 +208,10 @@ def gui_set_pass(*argumentos: str) -> int:
         # vigilante la vuelve a crear y a vigilar.
         proceso.refrescar()
     else:
-        # El vigilante no se reinicia: lee la clave y el modo al cifrar. Lo
-        # que ya hubiera dentro de una fija lo barre él.
-        if modo == config.MODO_FIJA:
-            proceso.pedir_barrido(cid)
+        # El vigilante no se reinicia: lee la clave y el modo al cifrar. El
+        # aviso le hace olvidar la contraseña de lote y, en una fija, barrer
+        # lo que ya hubiera dentro.
+        proceso.pedir_barrido(cid)
         proceso.asegurar()
     print("OK")
     return 0

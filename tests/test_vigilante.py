@@ -102,6 +102,27 @@ def test_un_marcador_de_una_carpeta_en_preguntar_se_ignora(nominas, cola):
     assert not marcador.exists()
 
 
+def test_un_marcador_olvida_el_lote_de_la_carpeta_sin_barrerla(
+        escritorio, sin_keyring, cola, monkeypatch):
+    """Cambiar la clave o el modo no puede dejar viva la contraseña de lote
+    que se dio antes: el siguiente PDF tiene que volver a preguntar."""
+    ruta = escritorio / "Informes"
+    ruta.mkdir()
+    config.escribir("informes", "Informes", ruta, "preguntar")
+    carpeta = config.leer("informes")
+    mapa = {vigilante._clave(ruta): carpeta}
+    pdf(ruta, "uno.pdf")
+    lote = preguntar.Lote()
+    lote.guardar("informes", "contraseña-vieja")
+    monkeypatch.setattr(vigilante, "_lote", lote)
+    proceso.pedir_barrido("informes")
+
+    vigilante._atender(rutas.barrer_dir() / "informes", cola, mapa)
+
+    assert lote.vigente("informes") is None
+    assert cola.empty()
+
+
 def test_un_marcador_de_una_carpeta_desconocida_se_ignora(nominas, cola):
     _carpeta, mapa = nominas
     proceso.pedir_barrido("fantasma")
